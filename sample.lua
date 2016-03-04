@@ -1,9 +1,8 @@
 Interfaces =
 {
-    SampleInterface = 
-    {
-        MyFunction1 = { Input = {Int, Int}, Output = Int },
-        MyFunction2 = { Input = {Int, Int}, Output = String },
+    SampleInterface = Interface{
+        MyFunction1 = Function(Int, Int) .. Int,
+        MyFunction2 = Function(Int, Int) .. String,
     },
 }
 
