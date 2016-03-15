@@ -1,9 +1,5 @@
-Interfaces =
+SampleInterface = Interface
 {
-    SampleInterface = Interface{
-        MyFunction1 = Function(Int, Int) .. Int,
-        MyFunction2 = Function(Int, Int) .. String,
-    },
+    MyFunction1 = (Function(Int, Int) .. Int),
+    MyFunction2 = (Function(Int, Int) .. String),
 }
-
-return Interfaces

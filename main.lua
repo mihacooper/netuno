@@ -2,34 +2,50 @@
 
 require "os"
 require "string"
+require "helpers"
 
-HELP = "HELP"
+HELP =
+"./main.lua [module] [interface] [language] [type] \
+    module     - the name of module insluded the interface \
+    interface  - the name of interface which should be generated \
+    language   - the destination language \
+    type       - dst or src source file \
+"
 
-local moduleName = arg[1]
-if moduleName == nil or io.open(moduleName .. ".lua", "r") == nil then
+local moduleName    = arg[1]
+local interfaceName = arg[2]
+local outputLang    = arg[3]
+local returnType    = arg[4]
+
+if moduleName == nil or outputLang == nil or io.open(moduleName .. ".lua", "r") == nil then
     print(HELP)
     os.exit(0)
 end
 
-Int     = "int"
-String  = "std::string"
-Double  = "double"
-Float   = "float"
-Short   = "short"
-Char    = "char"
-OutputFilename = moduleName .. ".cpp"
+language = require(outputLang)
 
-require "dsl"
-print("Load module " .. moduleName .. ".cpp")
-local interfaces = require(moduleName)
-
-
-output = io.open(OutputFilename, "w")
-for interf, val1 in pairs(interfaces) do
-    output:write(string.format("class %s\n{\npublic:\n", interf))
-    for func, val2 in pairs(val1) do
-        output:write(string.format("\t%s %s(%s);\n", val2.output, func, table.concat(val2.input, ", ")))
-    end
-    output:write("};\n")
+function LoadTargetModule(modName, intName)
+    local dsl = require "dsl"
+    table.copy(_G, dsl)
+    table.copy(_G, language.types)
+    require(modName)
+    table.exclude(_G, language.types)
+    table.exclude(_G, dsl)
+    return _G[intName]
 end
-output:close()
+
+--[[
+    Implementation body
+--]]
+
+local interface = LoadTargetModule(moduleName, interfaceName)
+local target = io.open(moduleName .. language.outputFileExt, "w")
+
+target:write(language.syntax.interface.prefix(interfaceName))
+for funcName, func in pairs(interface)
+do
+    Debug("Found function", func.output, funcName, table.concat(func.input, ", "))
+    target:write(language.syntax.func.declare(func.output, funcName, func.input))
+end
+target:write(language.syntax.interface.postfix())
+target:close()
