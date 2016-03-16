@@ -39,13 +39,14 @@ end
 --]]
 
 local interface = LoadTargetModule(moduleName, interfaceName)
-local target = io.open(moduleName .. language.outputFileExt, "w")
 
-target:write(language.syntax.interface.prefix(interfaceName))
+language.generator:SetInterfaceName(interfaceName)
 for funcName, func in pairs(interface)
 do
-    Debug("Found function", func.output, funcName, table.concat(func.input, ", "))
-    target:write(language.syntax.func.declare(func.output, funcName, func.input))
+    print(table.concat(func.input, ", "))
+    language.generator:AddFunction(func.output, funcName, func.input)
 end
-target:write(language.syntax.interface.postfix())
+
+local target = io.open(moduleName .. language.outputFileExt, "w")
+target:write(language.generator:GenerateHeader())
 target:close()

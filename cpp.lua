@@ -1,4 +1,4 @@
-return
+local general =
 {
     --[[
         Common language config
@@ -21,22 +21,30 @@ return
     --[[
         Syntax
     --]]
-    syntax = 
+    generator =
     {
-        interface = 
-        {
-            prefix = function(name)
-                return string.format("class %s\n{\npublic:\n", name)
-            end,
-            postfix = function()
-                return "};\n"
-            end,
-        },
-        func = 
-        {
-            declare = function(output, name, input)
-                return string.format("\t%s %s(%s);\n", output, name, table.concat(input, ", "))
-            end,
-        },
-    },
+        interfaceName = "__InvalidValue__",
+        functions = {},
+    }
 }
+
+function general.generator:SetInterfaceName(name)
+    self.interfaceName = name
+end
+
+function general.generator:AddFunction(output, name, input)
+    table.insert(self.functions, { name = name, output = output, input = input })
+end
+
+function general.generator:GenerateHeader()
+    local result = string.format("class %s\n{\npublic:\n", self.interfaceName)
+    for _, func in pairs(self.functions)
+    do
+        result = result .. string.format("\t%s %s(%s);\n",
+            func.output, func.name, table.concat(func.input, ", "))
+    end
+    result = result .. "};\n"
+    return result
+end
+
+return general
