@@ -9,7 +9,6 @@ return
         local f = { input = {} }
         setmetatable(f, mt)
         for i = 1, #arg do
-            print("arg " .. arg[i])
             table.insert(f.input, arg[i])
         end
         return f

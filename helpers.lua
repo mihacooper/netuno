@@ -19,3 +19,18 @@ function table.exclude(dst, src)
         dst[k] = nil
     end
 end
+
+function table.iforeach(array, func)
+    local res = {}
+    for _, v in ipairs(array)
+    do
+        table.insert(res, func(v))
+    end
+    return res
+end
+
+function WriteToFile(filename, data)
+    local file = io.open(filename, "w")
+    file:write(data)
+    file:close()
+end

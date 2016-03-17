@@ -43,10 +43,7 @@ local interface = LoadTargetModule(moduleName, interfaceName)
 language.generator:SetInterfaceName(interfaceName)
 for funcName, func in pairs(interface)
 do
-    print(table.concat(func.input, ", "))
     language.generator:AddFunction(func.output, funcName, func.input)
 end
 
-local target = io.open(moduleName .. language.outputFileExt, "w")
-target:write(language.generator:GenerateHeader())
-target:close()
+language.generator:GenerateFiles(moduleName)
