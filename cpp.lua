@@ -51,29 +51,39 @@ function general.generator:GenerateFiles(moduleName)
 end
 
 function general.generator:GenerateHeader(moduleName)
-    local headBody = string.format("class %s\n{\npublic:\n", self.interfaceName)
+    local headBody = ""
+    headBody = headBody .. "#include \"LuaBridge.h\"\n\n"
+    headBody = headBody .. "extern \"C\"\n{\n"
+    headBody = headBody .. "    #include \"lua.h\"\n"
+    headBody = headBody .. "    #include \"lauxlib.h\"\n"
+    headBody = headBody .. "    #include \"lualib.h\"\n"
+    headBody = headBody .. "}\n\n"
+    headBody = headBody .. string.format("class %s\n{\npublic:\n", self.interfaceName)
     headBody = headBody .. string.format("    %s();\n", self.interfaceName)
     for _, func in pairs(self.functions)
     do
         headBody = headBody .. string.format("    %s %s(%s);\n",
-            func.output, func.name, table.concat(func.input, ", "))
+            func.output or "void", func.name, table.concat(func.input, ", "))
     end
-    headBody = headBody .. "protected:\n    lua_State* m_luaState;\n"
+    headBody = headBody .. "\n"
+    headBody = headBody .. "protected:\n    luabridge::lua_State* m_luaState;\n"
     headBody = headBody .. "};\n"
     WriteToFile(moduleName .. ".h", headBody)
 end
 
 function general.generator:GenerateSource(moduleName)
-    local srcBody = string.format("#include \"%s.h\"\n\n", self.interfaceName)
+    local srcBody = ""
+    srcBody = srcBody .. string.format("#include \"%s.h\"\n\n", moduleName)
+    srcBody = srcBody .. string.format("using namespace luabridge;\n\n", self.interfaceName)
     srcBody = srcBody .. string.format("%s::%s()\n", self.interfaceName, self.interfaceName)
     srcBody = srcBody .. string.format(
         "    : m_luaState(luaL_newstate())\n{\n    luaL_dofile(m_luaState, \"%s.lua\");\
-        \n    luaL_openlibs(m_luaState);\n    lua_pcall(m_luaState, 0, 0, 0);\n}\n"
+        \n    luaL_openlibs(m_luaState);\n    lua_pcall(m_luaState, 0, 0, 0);\n}\n\n"
     , self.interfaceName);
     for _, func in pairs(self.functions)
     do
         local paramNum = 0
-        srcBody = srcBody .. string.format("%s %s::%s(%s);\n", func.output, self.interfaceName, func.name,
+        srcBody = srcBody .. string.format("%s %s::%s(%s)\n", func.output or "void", self.interfaceName, func.name,
                 table.concat(
                     table.iforeach(func.input, function(v)
                             local r = v .. " param" .. paramNum
@@ -83,6 +93,26 @@ function general.generator:GenerateSource(moduleName)
                     ),", "
                 )
         )
+        srcBody = srcBody .. "{\n"
+        srcBody = srcBody .. "    "
+        if func.output ~= nil then
+            srcBody = srcBody .. "return "
+        end
+        srcBody = srcBody .. string.format("getGlobal(m_luaState, \"%s\")(%s)", func.name,
+                table.concat(
+                    table.iforeach(func.input, function(v)
+                            local r = "param" .. paramNum
+                            paramNum = paramNum + 1
+                            return r 
+                        end
+                    ),", "
+                )
+        )
+        if func.output ~= nil then
+            srcBody = srcBody .. string.format(".cast<%s>()", func.output)
+        end
+        srcBody = srcBody .. ";\n"
+        srcBody = srcBody .. "}\n\n"
     end
     WriteToFile(moduleName .. ".cpp", srcBody)
 end
