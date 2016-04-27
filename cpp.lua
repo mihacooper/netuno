@@ -79,7 +79,7 @@ function general.generator:GenerateSource(moduleName)
     srcBody = srcBody .. string.format(
         "    : m_luaState(luaL_newstate())\n{\n    luaL_dofile(m_luaState, \"%s.lua\");\
         \n    luaL_openlibs(m_luaState);\n    lua_pcall(m_luaState, 0, 0, 0);\n}\n\n"
-    , self.interfaceName);
+    , moduleName);
     for _, func in pairs(self.functions)
     do
         local paramNum = 0
@@ -98,7 +98,9 @@ function general.generator:GenerateSource(moduleName)
         if func.output ~= nil then
             srcBody = srcBody .. "return "
         end
-        srcBody = srcBody .. string.format("getGlobal(m_luaState, \"%s\")(%s)", func.name,
+        local paramNum = 0
+        srcBody = srcBody .. string.format("getGlobal(m_luaState, \"%s\")[\"%s\"][\"impl\"](%s)",
+                self.interfaceName, func.name,
                 table.concat(
                     table.iforeach(func.input, function(v)
                             local r = "param" .. paramNum
