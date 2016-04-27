@@ -10,7 +10,8 @@ function checkfile()
 cd ../
 cp ./test/sample.lua ./
 ./main.lua sample SampleInterface cpp src
-checkfile "sample.cpp" "sample.h"
+checkfile "sample.cpp"
+checkfile "sample.h"
 mv sample.cpp ./test/
 mv sample.h ./test/
 
