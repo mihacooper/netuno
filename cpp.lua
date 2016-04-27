@@ -71,13 +71,17 @@ function general.generator:GenerateHeader(moduleName)
     WriteToFile(moduleName .. ".h", headBody)
 end
 
+
 function general.generator:GenerateSource(moduleName)
     local srcBody = ""
     srcBody = srcBody .. string.format("#include \"%s.h\"\n\n", moduleName)
     srcBody = srcBody .. string.format("using namespace luabridge;\n\n", self.interfaceName)
+    srcBody = srcBody .. "#define CHECK(x, msg) { \\\n"
+    srcBody = srcBody .. "\tif(x) { printf(\"ERROR at %s:%d %s\\nWhat: %s\\n\", __FILE__, __LINE__, #x, msg); \\\n"
+    srcBody = srcBody .. "\t\tthrow std::runtime_error(msg);} }\n\n"
     srcBody = srcBody .. string.format("%s::%s()\n", self.interfaceName, self.interfaceName)
     srcBody = srcBody .. string.format(
-        "    : m_luaState(luaL_newstate())\n{\n    luaL_dofile(m_luaState, \"%s.lua\");\
+        "    : m_luaState(luaL_newstate())\n{\n    luaL_loadfile(m_luaState, \"%s.lua\");\
         \n    luaL_openlibs(m_luaState);\n    lua_pcall(m_luaState, 0, 0, 0);\n}\n\n"
     , moduleName);
     for _, func in pairs(self.functions)

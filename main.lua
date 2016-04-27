@@ -1,6 +1,7 @@
 #!/usr/bin/lua
 
 require "os"
+package.path = package.path .. ";" .. os.getenv("LUA_RPC_SDK") .. "/?.lua"
 require "string"
 require "helpers"
 
