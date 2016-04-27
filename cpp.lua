@@ -50,16 +50,56 @@ function general.generator:GenerateFiles(moduleName)
     self:GenerateSource(moduleName)
 end
 
+local headerTemplate = 
+[[
+#include "LuaBridge.h"
+extern "C"
+{
+    #include "lua.h"
+    #include "lauxlib.h"
+    #include "lualib.h"
+}
+
+class {{interface}}
+{
+public:
+    {{interface}}();
+    <|functions|>{{output}} {{funcName}}(<|parameters|>{{type}} {{name}}{{c}}<|parameters|>);
+    <|functions|>
+
+protected:
+    luabridge::lua_State* m_luaState;
+};
+]]
+
+print(
+    StrRepeat(headerTemplate, { interface = "MyInterface", functions = 
+            {
+                { output = 'void', funcName = "Function1", parameters = { {type = 'int', name = 'param1', c = ', '}, {type = 'std::string', name = 'param2', c = ''}}},
+                { output = 'int', funcName = "Function2", parameters = { {type = 'float', name = 'param1', c = ', '}, {type = 'double', name = 'param2', c = ''}}},
+            }
+        }
+    )
+)
+
 function general.generator:GenerateHeader(moduleName)
-    local headBody = ""
-    headBody = headBody .. "#include \"LuaBridge.h\"\n\n"
-    headBody = headBody .. "extern \"C\"\n{\n"
-    headBody = headBody .. "    #include \"lua.h\"\n"
-    headBody = headBody .. "    #include \"lauxlib.h\"\n"
-    headBody = headBody .. "    #include \"lualib.h\"\n"
-    headBody = headBody .. "}\n\n"
-    headBody = headBody .. string.format("class %s\n{\npublic:\n", self.interfaceName)
-    headBody = headBody .. string.format("    %s();\n", self.interfaceName)
+    local headBody = StrReplace(
+[[
+#include "LuaBridge.h"
+extern "C"
+{
+    #include "lua.h"
+    #include "lauxlib.h"
+    #include "lualib.h"
+}
+
+class {{interface}}
+{
+public:
+    {{interface}}();
+]]
+        , { interface = self.interfaceName}
+    )
     for _, func in pairs(self.functions)
     do
         headBody = headBody .. string.format("    %s %s(%s);\n",
@@ -74,16 +114,26 @@ end
 
 function general.generator:GenerateSource(moduleName)
     local srcBody = ""
-    srcBody = srcBody .. string.format("#include \"%s.h\"\n\n", moduleName)
-    srcBody = srcBody .. string.format("using namespace luabridge;\n\n", self.interfaceName)
-    srcBody = srcBody .. "#define CHECK(x, msg) { \\\n"
-    srcBody = srcBody .. "\tif(x) { printf(\"ERROR at %s:%d %s\\nWhat: %s\\n\", __FILE__, __LINE__, #x, msg); \\\n"
-    srcBody = srcBody .. "\t\tthrow std::runtime_error(msg);} }\n\n"
-    srcBody = srcBody .. string.format("%s::%s()\n", self.interfaceName, self.interfaceName)
-    srcBody = srcBody .. string.format(
-        "    : m_luaState(luaL_newstate())\n{\n    luaL_loadfile(m_luaState, \"%s.lua\");\
-        \n    luaL_openlibs(m_luaState);\n    lua_pcall(m_luaState, 0, 0, 0);\n}\n\n"
-    , moduleName);
+    srcBody = srcBody .. StrReplace(
+    [[
+#include "{{module}}.h"
+
+using namespace luabridge;
+
+#define CHECK(x, msg) { \\
+    if(x) { printf(\"ERROR at %s:%d %s \\nWhat: %s\\n", __FILE__, __LINE__, #x, msg); \\
+        throw std::runtime_error(msg);} }
+
+{{interface}}::{{interface}}()
+    : m_luaState(luaL_newstate())
+{
+    luaL_loadfile(m_luaState, "{{module}}.lua");
+    luaL_openlibs(m_luaState);
+    lua_pcall(m_luaState, 0, 0, 0);
+}
+    ]],
+        { module = moduleName, interface = self.interfaceName}
+    )
     for _, func in pairs(self.functions)
     do
         local paramNum = 0
