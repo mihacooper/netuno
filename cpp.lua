@@ -67,15 +67,15 @@ local sourceTemplate =
 using namespace luabridge;
 
 #define CHECK(x, msg) { \
-    if(x) { printf("ERROR at %s:%d %s \n", __FILE__, __LINE__, #x); \
+    if(x) { printf("ERROR at %s:%d\n\t%s ", __FILE__, __LINE__, #x); \
         throw std::runtime_error(msg);} }
 
 {{interface}}::{{interface}}()
     : m_luaState(luaL_newstate())
 {
-    CHECK(luaL_loadfile(m_luaState, "{{module}}.lua"), "Unable to load Lua file");
+    CHECK(luaL_loadfile(m_luaState, "{{module}}.lua"), lua_tostring(m_luaState, -1));
     luaL_openlibs(m_luaState);
-    CHECK(lua_pcall(m_luaState, 0, 0, 0), "Unable to perform general Lua script call");
+    CHECK(lua_pcall(m_luaState, 0, 0, 0), lua_tostring(m_luaState, -1));
 }
 <|functions|>
 {{output}} {{interface}}::{{funcName}}(<|input|>{{paramType}} {{paramName}}<|comma|>, <|comma|><|input|>)
