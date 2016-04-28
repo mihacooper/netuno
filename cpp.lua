@@ -13,6 +13,7 @@ local general =
         Float   = "float",
         Short   = "short",
         Char    = "char",
+        Void    = "void",
     },
 
     --[[
@@ -25,24 +26,12 @@ local general =
     }
 }
 
-local CppConfig =
-{
-    Header =
-[[
-class %InterfaceName%
-{
-    %InterfaceName%
-    %FuncOutputType% %FuncName%(%FuncListOfInputTypes%);
-};
-]]
-}
-
 function general.generator:SetInterfaceName(name)
     self.interfaceName = name
 end
 
 function general.generator:AddFunction(output, name, input)
-    table.insert(self.functions, { name = name, output = output, input = input })
+    table.insert(self.functions, { funcName = name, output = output, input = input })
 end
 
 function general.generator:GenerateFiles(moduleName)
@@ -50,7 +39,7 @@ function general.generator:GenerateFiles(moduleName)
     self:GenerateSource(moduleName)
 end
 
-local headerTemplate = 
+local headerTemplate =
 [[
 #include "LuaBridge.h"
 extern "C"
@@ -64,113 +53,78 @@ class {{interface}}
 {
 public:
     {{interface}}();
-    <|functions|>{{output}} {{funcName}}(<|parameters|>{{type}} {{name}}{{c}}<|parameters|>);
-    <|functions|>
-
+<|functions|>    {{output}} {{funcName}}(<|input|>{{paramType}} {{paramName}}<|comma|>, <|comma|><|input|>);
+<|functions|>
 protected:
     luabridge::lua_State* m_luaState;
 };
 ]]
 
-print(
-    StrRepeat(headerTemplate, { interface = "MyInterface", functions = 
-            {
-                { output = 'void', funcName = "Function1", parameters = { {type = 'int', name = 'param1', c = ', '}, {type = 'std::string', name = 'param2', c = ''}}},
-                { output = 'int', funcName = "Function2", parameters = { {type = 'float', name = 'param1', c = ', '}, {type = 'double', name = 'param2', c = ''}}},
-            }
-        }
-    )
-)
-
-function general.generator:GenerateHeader(moduleName)
-    local headBody = StrReplace(
+local sourceTemplate =
 [[
-#include "LuaBridge.h"
-extern "C"
-{
-    #include "lua.h"
-    #include "lauxlib.h"
-    #include "lualib.h"
-}
-
-class {{interface}}
-{
-public:
-    {{interface}}();
-]]
-        , { interface = self.interfaceName}
-    )
-    for _, func in pairs(self.functions)
-    do
-        headBody = headBody .. string.format("    %s %s(%s);\n",
-            func.output or "void", func.name, table.concat(func.input, ", "))
-    end
-    headBody = headBody .. "\n"
-    headBody = headBody .. "protected:\n    luabridge::lua_State* m_luaState;\n"
-    headBody = headBody .. "};\n"
-    WriteToFile(moduleName .. ".h", headBody)
-end
-
-
-function general.generator:GenerateSource(moduleName)
-    local srcBody = ""
-    srcBody = srcBody .. StrReplace(
-    [[
 #include "{{module}}.h"
 
 using namespace luabridge;
 
-#define CHECK(x, msg) { \\
-    if(x) { printf(\"ERROR at %s:%d %s \\nWhat: %s\\n", __FILE__, __LINE__, #x, msg); \\
+#define CHECK(x, msg) { \
+    if(x) { printf("ERROR at %s:%d %s \n", __FILE__, __LINE__, #x); \
         throw std::runtime_error(msg);} }
 
 {{interface}}::{{interface}}()
     : m_luaState(luaL_newstate())
 {
-    luaL_loadfile(m_luaState, "{{module}}.lua");
+    CHECK(luaL_loadfile(m_luaState, "{{module}}.lua"), "Unable to load Lua file");
     luaL_openlibs(m_luaState);
-    lua_pcall(m_luaState, 0, 0, 0);
+    CHECK(lua_pcall(m_luaState, 0, 0, 0), "Unable to perform general Lua script call");
 }
-    ]],
-        { module = moduleName, interface = self.interfaceName}
-    )
-    for _, func in pairs(self.functions)
-    do
-        local paramNum = 0
-        srcBody = srcBody .. string.format("%s %s::%s(%s)\n", func.output or "void", self.interfaceName, func.name,
-                table.concat(
-                    table.iforeach(func.input, function(v)
-                            local r = v .. " param" .. paramNum
-                            paramNum = paramNum + 1
-                            return r 
-                        end
-                    ),", "
-                )
-        )
-        srcBody = srcBody .. "{\n"
-        srcBody = srcBody .. "    "
-        if func.output ~= nil then
-            srcBody = srcBody .. "return "
+<|functions|>
+{{output}} {{interface}}::{{funcName}}(<|input|>{{paramType}} {{paramName}}<|comma|>, <|comma|><|input|>)
+{
+    LuaRef interface = getGlobal(m_luaState, "{{interface}}");
+    CHECK(!interface.isNil(), "Unable to get Lua interface");
+    LuaRef funcObj = interface["{{funcName}}"];
+    CHECK(!funcObj.isNil(), "Unable to get Lua function object");
+    LuaRef function = funcObj["impl"];
+    CHECK(!function.isNil(), "Unable to get Lua function implementation");
+    <|doReturn|>return <|doReturn|>function(<|input|>{{paramName}}<|comma|>, <|comma|><|input|>)<|doCast|>.cast<{{output}}>()<|doCast|>;
+}
+<|functions|>
+]]
+
+function CommonPreparation(funcs)
+    for _, f in pairs(funcs) do
+        -- add separators
+        local lastParam
+        for _, param in pairs(f.input) do
+            lastParam = param
+            param.comma = {{}}
         end
-        local paramNum = 0
-        srcBody = srcBody .. string.format("getGlobal(m_luaState, \"%s\")[\"%s\"][\"impl\"](%s)",
-                self.interfaceName, func.name,
-                table.concat(
-                    table.iforeach(func.input, function(v)
-                            local r = "param" .. paramNum
-                            paramNum = paramNum + 1
-                            return r 
-                        end
-                    ),", "
-                )
-        )
-        if func.output ~= nil then
-            srcBody = srcBody .. string.format(".cast<%s>()", func.output)
-        end
-        srcBody = srcBody .. ";\n"
-        srcBody = srcBody .. "}\n\n"
+        lastParam.comma = {}
+        -- add separators
+        f.output = f.output or general.types.Void
     end
-    WriteToFile(moduleName .. ".cpp", srcBody)
+    return funcs
+end
+
+function general.generator:GenerateHeader(moduleName)
+    local body = StrRepeat(headerTemplate, { interface = self.interfaceName, functions = CommonPreparation(self.functions)})
+    WriteToFile(moduleName .. ".h", body)
+end
+
+
+function general.generator:GenerateSource(moduleName)
+    local funcs = CommonPreparation(self.functions)
+    for _, func in pairs(funcs) do
+        if func.output == general.types.Void then
+            func.doReturn = {}
+            func.doCast = {}
+        else
+            func.doReturn = {{}}
+            func.doCast = {{}}
+        end
+    end
+    local body = StrRepeat(sourceTemplate, { module = moduleName, interface = self.interfaceName, functions = funcs})
+    WriteToFile(moduleName .. ".cpp", body)
 end
 
 return general

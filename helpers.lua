@@ -57,21 +57,19 @@ end
 function IsTable(val)
     return type(val) == type({})
 end
---[[
-    Usage: StrRepeat("||1||{{a}}||1||||2||{{b}}||2||", { {{a = 1}, {a = 2}}, {{ b = 3, b = 4}} })
-    will return string:
-        1234
-]]
+
 function StrRepeat(str, args)
     local result = str
     for repKey, cases in pairs(args) do
         if IsTable(cases) then
-            local pattern = string.format("<|%s|>(.*)<|%s|>", repKey, repKey)
-            for _, case in pairs(cases) do
-                substr = StrRepeat(string.match(str, pattern), case)
-                result = string.gsub(result, pattern, string.format("%s<|%s|>%s<|%s|>", substr, repKey, '%1', repKey))
+            local pattern = string.format("<|%s|>(.-)<|%s|>", repKey, repKey)
+            for instance in string.gmatch(str, pattern) do
+                for _, case in pairs(cases) do
+                    local substr = StrRepeat(instance, case)
+                    result = string.gsub(result, pattern, string.format("%s<|%s|>%s<|%s|>", substr, repKey, '%1', repKey), 1)
+                end
+                result = string.gsub(result, pattern, '', 1)
             end
-            result = string.gsub(result, pattern, '')
         else
             result = StrReplace(result, { [repKey] = cases})
         end

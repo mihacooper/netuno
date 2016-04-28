@@ -4,16 +4,16 @@ return
       return intr
     end,
 
-    Function = function(...)
+    Function = function(input_args)
         local mt = { __concat = function(l, r) l.output = r return l end }
         local f = { input = {}, impl = function(...)
                 print("HERE WILL BE IMPLEMENTATION")
             end
         }
         setmetatable(f, mt)
-        args = {...}
-        for i = 1, #args do
-            table.insert(f.input, args[i])
+        f.input = {}
+        for pName, pType in pairs(input_args) do
+            table.insert( f.input, { paramName = pName, paramType = pType} )
         end
         return f
     end,
