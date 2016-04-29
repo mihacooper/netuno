@@ -1,20 +1,43 @@
-return
-{
-    Interface = function(intr)
-      return intr
-    end,
+function CheckName(name)
+    return true
+end
 
-    Function = function(input_args)
-        local mt = { __concat = function(l, r) l.output = r return l end }
-        local f = { input = {}, impl = function(...)
-                print("HERE WILL BE IMPLEMENTATION")
+function NewType(pType)
+    local t = { paramType = pType}
+    setmetatable(t, 
+        { 
+            __call = function(t, name)
+                local r = {}
+                table.rcopy(r, t)
+                r.paramName = name
+                return r
+            end,
+            __concat = function(t, func)
+                local r = {}
+                table.rcopy(r, t)
+                func.output = r
+                return func
             end
         }
-        setmetatable(f, mt)
-        f.input = {}
-        for pName, pType in pairs(input_args) do
-            table.insert( f.input, { paramName = pName, paramType = pType} )
+    )
+    return t
+end
+
+function Interface(intr)
+  return intr
+end
+
+function Function(name)
+    local mt = {
+        __call = function(func, params)
+            func.input = params
+            return func
         end
-        return f
-    end,
-}
+    }
+    local f = { funcName = name} 
+    f.impl = function(...)
+        print("HERE WILL BE IMPLEMENTATION")
+    end
+    setmetatable(f, mt)
+    return f
+end

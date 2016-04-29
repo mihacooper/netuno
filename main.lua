@@ -25,13 +25,11 @@ end
 
 language = require(outputLang)
 
+require "dsl"
 function LoadTargetModule(modName, intName)
-    local dsl = require "dsl"
-    table.copy(_G, dsl)
     table.copy(_G, language.types)
     require(modName)
     table.exclude(_G, language.types)
-    table.exclude(_G, dsl)
     return _G[intName]
 end
 
@@ -42,9 +40,9 @@ end
 local interface = LoadTargetModule(moduleName, interfaceName)
 
 language.generator:SetInterfaceName(interfaceName)
-for funcName, func in pairs(interface)
+for _, func in pairs(interface)
 do
-    language.generator:AddFunction(func.output, funcName, func.input)
+    language.generator:AddFunction(func)
 end
 
 language.generator:GenerateFiles(moduleName)

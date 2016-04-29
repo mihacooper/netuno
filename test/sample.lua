@@ -1,6 +1,6 @@
 SampleInterface = Interface
 {
-    MyFunction1 = Function{ param1 = Int, param2 = Int} .. Int,
-    MyFunction2 = Function{ param1 = Int, param2 = Int} .. String,
-    MyFunction3 = Function{ param1 = Int, param2 = String},
+    Int .. Function "MyFunction1" { Int "param1", Int "param2"},
+    Int .. Function "MyFunction2" { Int "param1", String "param2"},
+    Function "MyFunction3" { Int "param1"},
 }

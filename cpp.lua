@@ -1,4 +1,5 @@
 require "helpers"
+require "dsl"
 
 local general =
 {
@@ -7,13 +8,9 @@ local general =
     --]]
     types =
     {
-        Int     = "int",
-        String  = "std::string",
-        Double  = "double",
-        Float   = "float",
-        Short   = "short",
-        Char    = "char",
-        Void    = "void",
+        Int    = NewType("int"),
+        String = NewType("std::string"),
+        Void   = NewType("void"),
     },
 
     --[[
@@ -30,11 +27,12 @@ function general.generator:SetInterfaceName(name)
     self.interfaceName = name
 end
 
-function general.generator:AddFunction(output, name, input)
-    table.insert(self.functions, { funcName = name, output = output, input = input })
+function general.generator:AddFunction(func)
+    table.insert(self.functions, func)
 end
 
 function general.generator:GenerateFiles(moduleName)
+    self.functions = CommonPreparation(self.functions)
     self:GenerateHeader(moduleName)
     self:GenerateSource(moduleName)
 end
@@ -94,28 +92,29 @@ using namespace luabridge;
 function CommonPreparation(funcs)
     for _, f in pairs(funcs) do
         -- add separators
-        local lastParam
+        local paramsCopy = {}
         for _, param in pairs(f.input) do
-            lastParam = param
-            param.comma = {{}}
+            table.insert(paramsCopy,
+                { paramType = param.paramType, paramName = param.paramName, comma = {{}}})
         end
-        lastParam.comma = {}
+        paramsCopy[#paramsCopy].comma = {}
+        f.input = paramsCopy
         -- add separators
         f.output = f.output or general.types.Void
+        f.output = f.output.paramType
     end
     return funcs
 end
 
 function general.generator:GenerateHeader(moduleName)
-    local body = StrRepeat(headerTemplate, { interface = self.interfaceName, functions = CommonPreparation(self.functions)})
+    local body = StrRepeat(headerTemplate, { interface = self.interfaceName, functions = self.functions})
     WriteToFile(moduleName .. ".h", body)
 end
 
 
 function general.generator:GenerateSource(moduleName)
-    local funcs = CommonPreparation(self.functions)
-    for _, func in pairs(funcs) do
-        if func.output == general.types.Void then
+    for _, func in pairs(self.functions) do
+        if func.output == general.types.Void.paramType then
             func.doReturn = {}
             func.doCast = {}
         else
@@ -123,7 +122,7 @@ function general.generator:GenerateSource(moduleName)
             func.doCast = {{}}
         end
     end
-    local body = StrRepeat(sourceTemplate, { module = moduleName, interface = self.interfaceName, functions = funcs})
+    local body = StrRepeat(sourceTemplate, { module = moduleName, interface = self.interfaceName, functions = self.functions})
     WriteToFile(moduleName .. ".cpp", body)
 end
 

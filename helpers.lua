@@ -19,6 +19,17 @@ function table.copy(dst, src)
     end
 end
 
+function table.rcopy(dst, src)
+    for k, v in pairs(src) do
+        if IsTable(v) then
+            dst[k] = {}
+            table.rcopy(dst[k], v)
+        else
+            dst[k] = v
+        end
+    end
+end
+
 function table.exclude(dst, src)
     for k, v in pairs(src)
     do
@@ -63,7 +74,7 @@ function StrRepeat(str, args)
     for repKey, cases in pairs(args) do
         if IsTable(cases) then
             local pattern = string.format("<|%s|>(.-)<|%s|>", repKey, repKey)
-            for instance in string.gmatch(str, pattern) do
+            for instance in string.gmatch(result, pattern) do
                 for _, case in pairs(cases) do
                     local substr = StrRepeat(instance, case)
                     result = string.gsub(result, pattern, string.format("%s<|%s|>%s<|%s|>", substr, repKey, '%1', repKey), 1)
