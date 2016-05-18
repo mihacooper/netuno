@@ -8,8 +8,14 @@ function Debug(...)
 end
 
 function Error(...)
-    error(Debug(...))
+    error(table.concat({...}, " "))
     os.exit(1)
+end
+
+function Expect(cond, msg)
+    if not cond then
+        Error(msg)
+    end
 end
 
 function table.copy(dst, src)
@@ -69,6 +75,19 @@ function IsTable(val)
     return type(val) == type({})
 end
 
+function IsString(val)
+    return type(val) == type('')
+end
+
+function In(val, cont)
+    for _, v in pairs(cont) do
+        if v == val then
+            return true
+        end
+    end
+    return false
+end
+
 function StrRepeat(str, args)
     local result = str
     for repKey, cases in pairs(args) do
@@ -87,4 +106,3 @@ function StrRepeat(str, args)
     end
     return result
 end
-return StrRepeat

@@ -10,39 +10,45 @@ HELP =
     module     - the name of module insluded the interface \
     interface  - the name of interface which should be generated \
     language   - the destination language \
-    type       - dst or src source file \
+    type       - client or server source file. \
 "
 
 local moduleName    = arg[1]
 local interfaceName = arg[2]
 local outputLang    = arg[3]
-local returnType    = arg[4]
+local returnType    = arg[4] or 'both'
+
+if not In(returnType, {'client', 'server', 'both'}) then
+    print("Invalid 'type' = " .. returnType)
+    print(HELP)
+    os.exit(0)
+end
+
+if not In(outputLang, {'cpp'}) then
+    print("Invalid 'language' = " .. returnType)
+    print(HELP)
+    os.exit(0)
+end
 
 if moduleName == nil or outputLang == nil or io.open(moduleName .. ".lua", "r") == nil then
     print(HELP)
     os.exit(0)
 end
 
-language = require(outputLang)
-
 require "dsl"
-function LoadTargetModule(modName, intName)
-    table.copy(_G, language.types)
-    require(modName)
-    table.exclude(_G, language.types)
-    return _G[intName]
-end
-
---[[
-    Implementation body
---]]
-
-local interface = LoadTargetModule(moduleName, interfaceName)
-
-language.generator:SetInterfaceName(interfaceName)
+generator = require(outputLang)
+require(moduleName)
+local interface = GetInterface(interfaceName)
+generator:SetInterfaceName(interfaceName)
 for _, func in pairs(interface)
 do
-    language.generator:AddFunction(func)
+    generator:AddFunction(func)
 end
 
-language.generator:GenerateFiles(moduleName)
+if In(returnType, {'client', both}) then
+    generator:GenerateClientFiles(moduleName)
+elseif In(returnType, {'server', both}) then
+    generator:GenerateServerFiles(moduleName)
+else
+    print("Output type is not selected")
+end
