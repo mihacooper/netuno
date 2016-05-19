@@ -71,6 +71,7 @@ private:
 
 local clientSourceTemplate =
 [[
+#include <stdlib.h>
 #include "{{module}}.h"
 
 using namespace luabridge;
@@ -82,9 +83,14 @@ using namespace luabridge;
 {{interface}}::{{interface}}()
     : m_luaState(luaL_newstate())
 {
-    CHECK(luaL_loadfile(m_luaState, "loader.lua"), lua_tostring(m_luaState, -1));
+    char* cPath = getenv("LUA_RPC_SDK");
+    std::string pathToSdk = cPath == NULL ? "./" : cPath;
+    CHECK(luaL_loadfile(m_luaState, (pathToSdk + "/loader.lua").c_str()), lua_tostring(m_luaState, -1));
     luaL_openlibs(m_luaState);
     CHECK(lua_pcall(m_luaState, 0, 0, 0), lua_tostring(m_luaState, -1));
+    LuaRef loadFunc = getGlobal(m_luaState, "LoadInterface");
+    CHECK(loadFunc.isNil(), "Unable to get LoadInterface function");
+    loadFunc("{{module}}", "{{interface}}", "cpp");
 }
 
 LuaRef {{interface}}::GetFunction(const std::string& name)
@@ -119,7 +125,8 @@ function generator:GenerateClientSource(moduleName)
             func.doCast = {{}}
         end
     end
-    local body = StrRepeat(clientSourceTemplate, { module = moduleName, interface = self.interfaceName, functions = self.functions})
+    local body = StrRepeat(clientSourceTemplate, { module = moduleName, interface = self.interfaceName,
+            functions = self.functions, pathToSdk = os.getenv("")})
     WriteToFile(moduleName .. ".cpp", body)
 end
 
