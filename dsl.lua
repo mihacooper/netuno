@@ -106,7 +106,7 @@ local function InterfaceImpl(name)
         __call = function(i, body)
             for _, v in pairs(body) do
                 Expect(IsFunction(v), string.format("one of '%s' interface fields is invalid", name))
-                v.impl = GetFunctionImpl(v)
+                v.impl = v.impl or GetFunctionImpl(v)
             end
             table.copy(i, body)
             return i
@@ -127,13 +127,22 @@ local function FunctionImpl(name)
             for _, v in pairs(params) do
                 Expect(IsType(v), string.format("one of '%s' function parameters is invalid", name))
             end
+            setmetatable(func,
+                {
+                    __call = function(f, prop)
+                        Expect(IsFunction(f), "left operand of '..' is not a valid function")
+                        Expect(type(prop) == "table", "right operand of '..' is not a valid type")
+                        if prop[1] and type(prop[1]) == "function" then
+                            f.impl = prop[1]
+                        end
+                        return f
+                    end
+                } 
+            )
             return func
         end
     }
     local f = { funcName = name }
-    f.impl = function(...)
-        error("function implementation is not specified")
-    end
     storage.Store('functions', f)
     setmetatable(f, mt)
     return f
@@ -145,6 +154,9 @@ end
 Int    = NewType()
 String = NewType()
 Void   = NewType()
+Float  = NewType()
+Double = NewType()
+Bool   = NewType()
 
 function Interface(name)
     return InterfaceImpl(name)

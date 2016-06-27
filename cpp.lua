@@ -4,6 +4,9 @@ require "dsl"
 Int:SpecializeType('int', 0)
 String:SpecializeType('std::string', '')
 Void:SpecializeType('void', nil)
+Float:SpecializeType('float', 0)
+Double:SpecializeType('double', 0)
+Bool:SpecializeType('bool', false)
 
 local generator =
 {
