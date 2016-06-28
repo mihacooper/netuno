@@ -75,7 +75,7 @@ private:
 local clientSourceTemplate =
 [[
 #include <stdlib.h>
-#include "{{module}}.h"
+#include "{{interface}}.h"
 
 using namespace luabridge;
 
@@ -115,7 +115,7 @@ LuaRef {{interface}}::GetFunction(const std::string& name)
 
 function generator:GenerateClientHeader(moduleName)
     local body = StrRepeat(clientHeaderTemplate, { interface = self.interfaceName, functions = self.functions})
-    WriteToFile(moduleName .. ".h", body)
+    WriteToFile(self.interfaceName .. ".h", body)
 end
 
 function generator:GenerateClientSource(moduleName)
@@ -130,7 +130,7 @@ function generator:GenerateClientSource(moduleName)
     end
     local body = StrRepeat(clientSourceTemplate, { module = moduleName, interface = self.interfaceName,
             functions = self.functions, pathToSdk = os.getenv("")})
-    WriteToFile(moduleName .. ".cpp", body)
+    WriteToFile(self.interfaceName .. ".cpp", body)
 end
 
 --[[
@@ -170,7 +170,7 @@ private:
 local serverSourceTemplate =
 [[
 #include <stdlib.h>
-#include "{{module}}.h"
+#include "{{interface}}.h"
 
 using namespace luabridge;
 
@@ -210,7 +210,7 @@ using namespace luabridge;
 
 function generator:GenerateServerHeader(moduleName)
     local body = StrRepeat(serverHeaderTemplate, { interface = self.interfaceName, functions = self.functions})
-    WriteToFile(moduleName .. ".h", body)
+    WriteToFile(self.interfaceName .. ".h", body)
 end
 
 function generator:GenerateServerSource(moduleName)
@@ -226,7 +226,7 @@ function generator:GenerateServerSource(moduleName)
         end
     end
     local body = StrRepeat(serverSourceTemplate, { module = moduleName, interface = self.interfaceName, functions = self.functions})
-    WriteToFile(moduleName .. ".cpp", body)
+    WriteToFile(self.interfaceName .. ".cpp", body)
 end
 
 return generator

@@ -1,5 +1,5 @@
 #include <iostream>
-#include "sample.h"
+#include "SampleInterface.h"
 
 int main()
 {

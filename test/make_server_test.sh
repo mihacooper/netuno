@@ -9,8 +9,8 @@ function checkfile()
 
 export LUA_RPC_SDK="$PWD/.."
 ../main.lua sample SampleInterface cpp server
-checkfile "sample.cpp"
-checkfile "sample.h"
+checkfile "SampleInterface.cpp"
+checkfile "SampleInterface.h"
 
-g++ server_main.cpp sample.cpp -I../LuaBridge -I/usr/include/lua5.2 -llua5.2 -o sample
+g++ server_main.cpp SampleInterface.cpp -I../LuaBridge -I/usr/include/lua5.2 -llua5.2 -o sample
 ./sample

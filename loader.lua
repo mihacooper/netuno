@@ -9,7 +9,6 @@ function LoadClientInterface(module, name, lang)
 	 _G[name] = interface
 	for _, func in pairs(interface) do
 	    if IsTable(func) then
-	    	print(func.funcName)
 	        interface[func.funcName] = func.impl
 	    end
 	end
@@ -34,6 +33,6 @@ function LoadServerInterface(module, name, lang)
 	    end
 	end
 	-- ++ JUST FOR TEST
-	--print(GetInterface(name).MyFunction1(1, 2))
+	print(GetInterface(name).MyFunction1(1, 2))
 	-- -- JUST FOR TEST
 end
