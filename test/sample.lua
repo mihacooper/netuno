@@ -1,3 +1,9 @@
+Structure "SampleStructure"
+{
+	Int "field1",
+	String "field2"
+}
+
 Interface "SampleInterface"
 {
     Int .. Function "MyFunction1" { Int "param1", Int "param2"},

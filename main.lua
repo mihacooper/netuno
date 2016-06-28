@@ -37,12 +37,18 @@ end
 
 require "dsl"
 generator = require(outputLang)
+
 require(moduleName)
 local interface = GetInterface(interfaceName)
 generator:SetInterfaceName(interfaceName)
-for _, func in pairs(interface)
-do
+
+for _, func in pairs(interface) do
     generator:AddFunction(func)
+end
+
+local structures = GetStructures()
+for name, str in pairs(structures) do
+    generator:AddStructure(name, str)
 end
 
 if In(returnType, {'client', both}) then

@@ -11,6 +11,8 @@ export LUA_RPC_SDK="$PWD/.."
 ../main.lua sample SampleInterface cpp server
 checkfile "SampleInterface.cpp"
 checkfile "SampleInterface.h"
+checkfile "SampleStructure.cpp"
+checkfile "SampleStructure.h"
 
-g++ server_main.cpp SampleInterface.cpp -I../LuaBridge -I/usr/include/lua5.2 -llua5.2 -o sample
+g++ server_main.cpp SampleInterface.cpp SampleStructure.cpp -I../LuaBridge -I/usr/include/lua5.2 -llua5.2 -o sample
 ./sample

@@ -118,6 +118,24 @@ local function InterfaceImpl(name)
     return newInterface
 end
 
+local structures = {}
+local function StructureImpl(name)
+    CheckName(name)
+    local mt = {
+        __call = function(i, body)
+            for _, v in pairs(body) do
+                Expect(IsType(v), string.format("one of '%s' structure fields is invalid", name))
+            end
+            table.copy(i, body)
+            return i
+        end
+    }
+    local newStructure = {}
+    setmetatable(newStructure, mt)
+    structures[name] = newStructure
+    return newStructure
+end
+
 local function FunctionImpl(name)
     Expect(IsString(name), "string expected as a function name")
     CheckName(name)
@@ -166,6 +184,14 @@ function Function(name)
     return FunctionImpl(name)
 end
 
+function Structure(name)
+    return StructureImpl(name)
+end
+
 function GetInterface(name)
     return interfaces[name]
+end
+
+function GetStructures()
+    return structures
 end

@@ -12,6 +12,7 @@ local generator =
 {
     interfaceName = "__InvalidValue__",
     functions = {},
+    structures = {},
 }
 
 local function CommonPreparation(funcs)
@@ -41,10 +42,68 @@ function generator:AddFunction(func)
     table.insert(self.functions, func)
 end
 
+function generator:AddStructure(name, str)
+    table.insert(self.structures, { structureName = name, fields = str})
+end
+
+--[[
+    Structures
+]]
+
+local structureHeaderTemplate = 
+[[
+#include "LuaBridge.h"
+extern "C"
+{
+    #include "lua.h"
+    #include "lauxlib.h"
+    #include "lualib.h"
+}
+
+struct {{structureName}}
+{
+<|fields|>    {{paramType}} {{paramName}};
+<|fields|>
+    luabridge::LuaRef ToLuaTable(luabridge::lua_State* state) const;
+    void FromLuaTable(const luabridge::LuaRef& ref);
+};
+]]
+
+local structureSourceTemplate = 
+[[
+#include <stdlib.h>
+#include "{{structureName}}.h"
+
+using namespace luabridge;
+
+luabridge::LuaRef {{structureName}}::ToLuaTable(luabridge::lua_State* state) const
+{
+    LuaRef ret(state);
+<|fields|>    ret["{{paramName}}"] = {{paramName}};
+<|fields|>
+    return ret;
+}
+
+void {{structureName}}::FromLuaTable(const luabridge::LuaRef& ref)
+{
+<|fields|>    {{paramName}} = ref["{{paramName}}"].cast<{{paramType}}>();
+<|fields|>}
+]]
+
+function generator:GenerateStructures(moduleName)
+    for _, str in pairs(self.structures) do
+        local headBody = StrRepeat(structureHeaderTemplate, str)
+        WriteToFile(str.structureName .. ".h", headBody)
+        local srcBody = StrRepeat(structureSourceTemplate, str)
+        WriteToFile(str.structureName .. ".cpp", srcBody)
+    end
+end
+
 --[[
     Client
 ]]
 function generator:GenerateClientFiles(moduleName)
+    self:GenerateStructures()
     self.functions = CommonPreparation(self.functions)
     self:GenerateClientHeader(moduleName)
     self:GenerateClientSource(moduleName)
@@ -53,6 +112,8 @@ end
 local clientHeaderTemplate =
 [[
 #include "LuaBridge.h"
+<|structures|>#include "{{structureName}}.h"
+<|structures|>
 extern "C"
 {
     #include "lua.h"
@@ -114,7 +175,7 @@ LuaRef {{interface}}::GetFunction(const std::string& name)
 ]]
 
 function generator:GenerateClientHeader(moduleName)
-    local body = StrRepeat(clientHeaderTemplate, { interface = self.interfaceName, functions = self.functions})
+    local body = StrRepeat(clientHeaderTemplate, { structures = self.structures, interface = self.interfaceName, functions = self.functions})
     WriteToFile(self.interfaceName .. ".h", body)
 end
 
@@ -137,6 +198,7 @@ end
     Server
 ]]
 function generator:GenerateServerFiles(moduleName)
+    self:GenerateStructures()
     for _, f in pairs(self.functions) do
         f.defOutput = f.output or Void
         f.defOutput = f.defOutput.default
@@ -209,7 +271,7 @@ using namespace luabridge;
 ]]
 
 function generator:GenerateServerHeader(moduleName)
-    local body = StrRepeat(serverHeaderTemplate, { interface = self.interfaceName, functions = self.functions})
+    local body = StrRepeat(serverHeaderTemplate, { structures = self.structures, interface = self.interfaceName, functions = self.functions})
     WriteToFile(self.interfaceName .. ".h", body)
 end
 
