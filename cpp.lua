@@ -91,8 +91,8 @@ using namespace luabridge;
     CHECK(luaL_loadfile(m_luaState, (pathToSdk + "/loader.lua").c_str()), lua_tostring(m_luaState, -1));
     luaL_openlibs(m_luaState);
     CHECK(lua_pcall(m_luaState, 0, 0, 0), lua_tostring(m_luaState, -1));
-    LuaRef loadFunc = getGlobal(m_luaState, "LoadInterface");
-    CHECK(loadFunc.isNil(), "Unable to get LoadInterface function");
+    LuaRef loadFunc = getGlobal(m_luaState, "LoadClientInterface");
+    CHECK(loadFunc.isNil(), "Unable to get LoadClientInterface function");
     loadFunc("{{module}}", "{{interface}}", "cpp");
 }
 
@@ -137,6 +137,10 @@ end
     Server
 ]]
 function generator:GenerateServerFiles(moduleName)
+    for _, f in pairs(self.functions) do
+        f.defOutput = f.output or Void
+        f.defOutput = f.defOutput.default
+    end
     self.functions = CommonPreparation(self.functions)
     self:GenerateServerHeader(moduleName)
     self:GenerateServerSource(moduleName)
@@ -156,7 +160,7 @@ class {{interface}}
 {
 public:
     {{interface}}();
-<|functions|>    virtual {{output}} {{funcName}}(<|input|>{{paramType}} {{paramName}}<|comma|>, <|comma|><|input|>) = 0;
+<|functions|>    {{output}} {{funcName}}(<|input|>{{paramType}} {{paramName}}<|comma|>, <|comma|><|input|>);
 <|functions|>
 private:
     luabridge::lua_State* m_luaState;
@@ -165,6 +169,7 @@ private:
 
 local serverSourceTemplate =
 [[
+#include <stdlib.h>
 #include "{{module}}.h"
 
 using namespace luabridge;
@@ -176,18 +181,35 @@ using namespace luabridge;
 {{interface}}::{{interface}}()
     : m_luaState(luaL_newstate())
 {
-    getGlobalNamespace(m_luaState)
-    .beginClass<{{interface}}>("{{interface}}")
-<|functions|>        .addFunction("{{interface}}", &{{interface}}::{{funcName}})<|functions|>
-    .endClass();
-    CHECK(luaL_loadfile(m_luaState, "loader.lua"), lua_tostring(m_luaState, -1));
+    char* cPath = getenv("LUA_RPC_SDK");
+    std::string pathToSdk = cPath == NULL ? "./" : cPath;
+    CHECK(luaL_loadfile(m_luaState, (pathToSdk + "/loader.lua").c_str()), lua_tostring(m_luaState, -1));
     luaL_openlibs(m_luaState);
+    getGlobalNamespace(m_luaState)
+        .beginClass<{{interface}}>("{{interface}}")
+<|functions|>            .addFunction("{{funcName}}", &{{interface}}::{{funcName}})
+<|functions|>        .endClass();
+    setGlobal(m_luaState, this, "{{interface}}");
     CHECK(lua_pcall(m_luaState, 0, 0, 0), lua_tostring(m_luaState, -1));
+    LuaRef loadFunc = getGlobal(m_luaState, "LoadServerInterface");
+    CHECK(loadFunc.isNil(), "Unable to get LoadServerInterface function");
+    loadFunc("{{module}}", "{{interface}}", "cpp");
 }
+
+/*****************************************
+ ***** PUT YOUR IMPLEMENTATION BELOW *****
+ *****************************************/
+
+<|functions|>
+{{output}} {{interface}}::{{funcName}}(<|input|>{{paramType}} {{paramName}}<|comma|>, <|comma|><|input|>)
+{<|doReturn|>
+    return {{default}};<|doReturn|>
+}
+<|functions|>
 ]]
 
 function generator:GenerateServerHeader(moduleName)
-    local body = StrRepeat(clientHeaderTemplate, { interface = self.interfaceName, functions = self.functions})
+    local body = StrRepeat(serverHeaderTemplate, { interface = self.interfaceName, functions = self.functions})
     WriteToFile(moduleName .. ".h", body)
 end
 
@@ -195,13 +217,15 @@ function generator:GenerateServerSource(moduleName)
     for _, func in pairs(self.functions) do
         if func.output == Void.paramType then
             func.doReturn = {}
-            func.doCast = {}
         else
-            func.doReturn = {{}}
-            func.doCast = {{}}
+            local def = func.defOutput
+            if def == '' then
+                def = '""'
+            end
+            func.doReturn = {{ default = def }}
         end
     end
-    local body = StrRepeat(clientSourceTemplate, { module = moduleName, interface = self.interfaceName, functions = self.functions})
+    local body = StrRepeat(serverSourceTemplate, { module = moduleName, interface = self.interfaceName, functions = self.functions})
     WriteToFile(moduleName .. ".cpp", body)
 end
 
