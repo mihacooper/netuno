@@ -4,7 +4,7 @@ function LoadClientInterface(module, name, lang)
 	require "dsl"
 	require(lang)
 
-	require(module)
+	dofile(module)
 	local interface = GetInterface(name)
 	 _G[name] = interface
 	for _, func in pairs(interface) do
@@ -20,7 +20,7 @@ function LoadServerInterface(module, name, lang)
 	require "dsl"
 	require(lang)
 
-	require(module)
+	dofile(module)
 	local interface = GetInterface(name)
 	interface.impl = _G[name]
 	_G[name] = interface

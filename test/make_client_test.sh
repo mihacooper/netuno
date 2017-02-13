@@ -7,12 +7,22 @@ function checkfile()
     fi
 }
 
-export LUA_RPC_SDK="$PWD/.."
-../main.lua sample SampleInterface cpp client
+ROOT_DIR="$(cd $(dirname $0); pwd)"
+export LUA_RPC_SDK="$ROOT_DIR/../src"
+
+cd $ROOT_DIR
+if ! [ -d work_dir ]; then
+    mkdir work_dir
+fi
+cd work_dir
+
+$LUA_RPC_SDK/main.lua ../sample.lua SampleInterface cpp client
 checkfile "SampleInterface.cpp"
 checkfile "SampleInterface.h"
 checkfile "SampleStructure.cpp"
 checkfile "SampleStructure.h"
 
-g++ client_main.cpp SampleInterface.cpp SampleStructure.cpp -I../LuaBridge -I/usr/include/lua5.2 -llua5.2 -o sample
+g++ ../client_main.cpp SampleInterface.cpp SampleStructure.cpp -I$PWD -I../../LuaBridge -I/usr/include/lua5.2 -llua5.2 -o sample
+
+cp ../sample.lua .
 ./sample

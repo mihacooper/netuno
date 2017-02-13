@@ -7,7 +7,7 @@ require "helpers"
 
 HELP =
 "./main.lua [module] [interface] [language] [type] \
-    module     - the name of module insluded the interface \
+    module     - the name of module included the interface \
     interface  - the name of interface which should be generated \
     language   - the destination language \
     type       - client or server source file. \
@@ -30,7 +30,8 @@ if not In(outputLang, {'cpp'}) then
     os.exit(0)
 end
 
-if moduleName == nil or outputLang == nil or io.open(moduleName .. ".lua", "r") == nil then
+if moduleName == nil or io.open(moduleName, "r") == nil then
+    print("Invalid module file")
     print(HELP)
     os.exit(0)
 end
@@ -38,7 +39,7 @@ end
 require "dsl"
 generator = require(outputLang)
 
-require(moduleName)
+dofile(moduleName)
 local interface = GetInterface(interfaceName)
 generator:SetInterfaceName(interfaceName)
 
