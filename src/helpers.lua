@@ -1,5 +1,6 @@
 DEBUG = true
 require 'string'
+local templates = require "template.lib.resty.template"
 
 function Debug(...)
     if DEBUG then
@@ -58,15 +59,6 @@ function WriteToFile(filename, data)
     file:close()
 end
 
-function StrReplace(str, args)
-    local result = str
-    for name, value in pairs(args) do
-        local pattern = '{{' .. name .. '}}'
-        result = string.gsub(result, pattern, value)
-    end
-    return result
-end
-
 function ToString(val)
     return val .. ''
 end
@@ -88,21 +80,11 @@ function In(val, cont)
     return false
 end
 
-function StrRepeat(str, args)
-    local result = str
-    for repKey, cases in pairs(args) do
-        if IsTable(cases) then
-            local pattern = string.format("<|%s|>(.-)<|%s|>", repKey, repKey)
-            for instance in string.gmatch(result, pattern) do
-                for _, case in pairs(cases) do
-                    local substr = StrRepeat(instance, case)
-                    result = string.gsub(result, pattern, string.format("%s<|%s|>%s<|%s|>", substr, repKey, '%1', repKey), 1)
-                end
-                result = string.gsub(result, pattern, '', 1)
-            end
-        else
-            result = StrReplace(result, { [repKey] = cases})
-        end
+function generate(temp, data)
+    local render_res = ""
+    templates.print = function(res)
+        render_res = res
     end
-    return result
+    templates.render(temp, data)
+    return render_res
 end

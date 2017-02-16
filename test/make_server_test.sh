@@ -16,7 +16,7 @@ if ! [ -d work_dir ]; then
 fi
 cd work_dir
 
-$LUA_RPC_SDK/main.lua ../sample.lua SampleInterface cpp server
+$LUA_RPC_SDK/main.lua ./sample.lua SampleInterface cpp server
 checkfile "SampleInterface.cpp"
 checkfile "SampleInterface.h"
 checkfile "SampleStructure.cpp"

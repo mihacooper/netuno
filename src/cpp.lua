@@ -53,17 +53,13 @@ end
 local structureHeaderTemplate = 
 [[
 #include "LuaBridge.h"
-extern "C"
-{
-    #include "lua.h"
-    #include "lauxlib.h"
-    #include "lualib.h"
-}
+#include "lua.hpp"
 
-struct {{structureName}}
+struct {*structureName*}
 {
-<|fields|>    {{paramType}} {{paramName}};
-<|fields|>
+{%for _, field  in pairs(fields) do%}
+    {*field.paramType*} {*field.paramName*};
+{%end%}
     luabridge::LuaRef ToLuaTable(luabridge::lua_State* state) const;
     void FromLuaTable(const luabridge::LuaRef& ref);
 };
@@ -79,22 +75,25 @@ using namespace luabridge;
 luabridge::LuaRef {{structureName}}::ToLuaTable(luabridge::lua_State* state) const
 {
     LuaRef ret(state);
-<|fields|>    ret["{{paramName}}"] = {{paramName}};
-<|fields|>
+{%for _, field  in pairs(fields) do%}
+    ret[{*field.paramName*}] = {*field.paramName*};
+{%end%}
     return ret;
 }
 
 void {{structureName}}::FromLuaTable(const luabridge::LuaRef& ref)
 {
-<|fields|>    {{paramName}} = ref["{{paramName}}"].cast<{{paramType}}>();
-<|fields|>}
+{%for _, field  in pairs(fields) do%}
+    {*field.paramName*} = ref["{*field.paramName*}"].cast<{*field.paramType*}>();
+{%end%}
+}
 ]]
 
 function generator:GenerateStructures(moduleName)
     for _, str in pairs(self.structures) do
-        local headBody = StrRepeat(structureHeaderTemplate, str)
+        local headBody = generate(structureHeaderTemplate, str)
         WriteToFile(str.structureName .. ".h", headBody)
-        local srcBody = StrRepeat(structureSourceTemplate, str)
+        local srcBody = generate(structureSourceTemplate, str)
         WriteToFile(str.structureName .. ".cpp", srcBody)
     end
 end
@@ -112,21 +111,19 @@ end
 local clientHeaderTemplate =
 [[
 #include "LuaBridge.h"
-<|structures|>#include "{{structureName}}.h"
-<|structures|>
-extern "C"
-{
-    #include "lua.h"
-    #include "lauxlib.h"
-    #include "lualib.h"
-}
+{%for _, str  in pairs(structures) do%}
+#include "{*str.structureName*}.h"
+{%end%}
+#include "lua.hpp"
 
-class {{interface}}
+class {*interface*}
 {
 public:
-    {{interface}}();
-<|functions|>    {{output}} {{funcName}}(<|input|>{{paramType}} {{paramName}}<|comma|>, <|comma|><|input|>);
-<|functions|>
+    {*interface*}();
+{%for _, func  in pairs(functions) do%}
+    virtual {*func.output*} {*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%});
+{%end%}
+
 private:
     luabridge::LuaRef GetFunction(const std::string& name);
     luabridge::lua_State* m_luaState;
@@ -136,7 +133,7 @@ private:
 local clientSourceTemplate =
 [[
 #include <stdlib.h>
-#include "{{interface}}.h"
+#include "{*interface*}.h"
 
 using namespace luabridge;
 
@@ -144,7 +141,7 @@ using namespace luabridge;
     if(x) { printf("ERROR at %s:%d\n\t%s ", __FILE__, __LINE__, #x); \
         throw std::runtime_error(msg);} }
 
-{{interface}}::{{interface}}()
+{*interface*}::{*interface*}()
     : m_luaState(luaL_newstate())
 {
     char* cPath = getenv("LUA_RPC_SDK");
@@ -154,42 +151,39 @@ using namespace luabridge;
     CHECK(lua_pcall(m_luaState, 0, 0, 0), lua_tostring(m_luaState, -1));
     LuaRef loadFunc = getGlobal(m_luaState, "LoadClientInterface");
     CHECK(loadFunc.isNil(), "Unable to get LoadClientInterface function");
-    loadFunc("{{module}}", "{{interface}}", "cpp");
+    loadFunc("{*module*}", "{*interface*}", "cpp");
 }
 
-LuaRef {{interface}}::GetFunction(const std::string& name)
+LuaRef {*interface*}::GetFunction(const std::string& name)
 {
-    LuaRef interface = getGlobal(m_luaState, "{{interface}}");
+    LuaRef interface = getGlobal(m_luaState, "{*interface*}");
     CHECK(interface.isNil(), "Unable to get Lua interface");
     LuaRef func = interface[name];
     CHECK(func.isNil(), "Unable to get Lua function object");
     return func;
 }
 
-<|functions|>
-{{output}} {{interface}}::{{funcName}}(<|input|>{{paramType}} {{paramName}}<|comma|>, <|comma|><|input|>)
+{%for _, func  in pairs(functions) do%}
+{*func.output*} {*interface*}::{*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%})
 {
-    <|doReturn|>return <|doReturn|>GetFunction("{{funcName}}")(<|input|>{{paramName}}<|comma|>, <|comma|><|input|>)<|doCast|>.cast<{{output}}>()<|doCast|>;
+{-raw-}    {-raw-}{%if func.has_return then%}{-raw-}return {-raw-}{%end%}GetFunction("{*func.funcName*}")({%for i = 1, #func.input do%}{*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%}){%if func.has_return then%}.cast<{*func.output*}>(){%end%};
 }
-<|functions|>
+
+{%end%}
 ]]
 
 function generator:GenerateClientHeader(moduleName)
-    local body = StrRepeat(clientHeaderTemplate, { structures = self.structures, interface = self.interfaceName, functions = self.functions})
+    local body = generate(clientHeaderTemplate, { structures = self.structures, interface = self.interfaceName, functions = self.functions})
     WriteToFile(self.interfaceName .. ".h", body)
 end
 
 function generator:GenerateClientSource(moduleName)
     for _, func in pairs(self.functions) do
-        if func.output == Void.paramType then
-            func.doReturn = {}
-            func.doCast = {}
-        else
-            func.doReturn = {{}}
-            func.doCast = {{}}
+        if func.output ~= Void.paramType then
+            func.has_return = true
         end
     end
-    local body = StrRepeat(clientSourceTemplate, { module = moduleName, interface = self.interfaceName,
+    local body = generate(clientSourceTemplate, { module = moduleName, interface = self.interfaceName,
             functions = self.functions, pathToSdk = os.getenv("")})
     WriteToFile(self.interfaceName .. ".cpp", body)
 end
@@ -211,19 +205,16 @@ end
 local serverHeaderTemplate =
 [[
 #include "LuaBridge.h"
-extern "C"
-{
-    #include "lua.h"
-    #include "lauxlib.h"
-    #include "lualib.h"
-}
+#include "lua.hpp"
 
-class {{interface}}
+class {*interface*}
 {
 public:
-    {{interface}}();
-<|functions|>    {{output}} {{funcName}}(<|input|>{{paramType}} {{paramName}}<|comma|>, <|comma|><|input|>);
-<|functions|>
+    {*interface*}();
+{%for _, func  in pairs(functions) do%}
+    virtual {*func.output*} {*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%});
+{%end%}
+
 private:
     luabridge::lua_State* m_luaState;
 };
@@ -232,7 +223,7 @@ private:
 local serverSourceTemplate =
 [[
 #include <stdlib.h>
-#include "{{interface}}.h"
+#include "{*interface*}.h"
 
 using namespace luabridge;
 
@@ -249,45 +240,46 @@ using namespace luabridge;
     luaL_openlibs(m_luaState);
     getGlobalNamespace(m_luaState)
         .beginClass<{{interface}}>("{{interface}}")
-<|functions|>            .addFunction("{{funcName}}", &{{interface}}::{{funcName}})
-<|functions|>        .endClass();
-    setGlobal(m_luaState, this, "{{interface}}");
+{%for _, func  in pairs(functions) do%}
+            .addFunction("{*func.funcName*}", &{*interface*}::{*func.funcName*})
+{%end%}
+        .endClass();
+    setGlobal(m_luaState, this, "{*interface*}");
     CHECK(lua_pcall(m_luaState, 0, 0, 0), lua_tostring(m_luaState, -1));
     LuaRef loadFunc = getGlobal(m_luaState, "LoadServerInterface");
     CHECK(loadFunc.isNil(), "Unable to get LoadServerInterface function");
-    loadFunc("{{module}}", "{{interface}}", "cpp");
+    loadFunc("{*module*}", "{*interface*}", "cpp");
 }
 
 /*****************************************
  ***** PUT YOUR IMPLEMENTATION BELOW *****
  *****************************************/
 
-<|functions|>
-{{output}} {{interface}}::{{funcName}}(<|input|>{{paramType}} {{paramName}}<|comma|>, <|comma|><|input|>)
-{<|doReturn|>
-    return {{default}};<|doReturn|>
+{%for _, func  in pairs(functions) do%}
+{*func.output*} {*interface*}::{*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%})
+{%if func.has_return then%}
+{
+    return {*func.output*}();
 }
-<|functions|>
+{%else%}
+{}
+{%end%}
+
+{%end%}
 ]]
 
 function generator:GenerateServerHeader(moduleName)
-    local body = StrRepeat(serverHeaderTemplate, { structures = self.structures, interface = self.interfaceName, functions = self.functions})
+    local body = generate(serverHeaderTemplate, { structures = self.structures, interface = self.interfaceName, functions = self.functions})
     WriteToFile(self.interfaceName .. ".h", body)
 end
 
 function generator:GenerateServerSource(moduleName)
     for _, func in pairs(self.functions) do
-        if func.output == Void.paramType then
-            func.doReturn = {}
-        else
-            local def = func.defOutput
-            if def == '' then
-                def = '""'
-            end
-            func.doReturn = {{ default = def }}
+        if func.output ~= Void.paramType then
+            func.has_return = true
         end
     end
-    local body = StrRepeat(serverSourceTemplate, { module = moduleName, interface = self.interfaceName, functions = self.functions})
+    local body = generate(serverSourceTemplate, { module = moduleName, interface = self.interfaceName, functions = self.functions})
     WriteToFile(self.interfaceName .. ".cpp", body)
 end
 
