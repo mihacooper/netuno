@@ -52,39 +52,37 @@ end
 
 local structureHeaderTemplate = 
 [[
-#include "LuaBridge.h"
 #include "lua.hpp"
+#include "lang-cpp/sol2/single/sol/sol.hpp"
 
 struct {*structureName*}
 {
 {%for _, field  in pairs(fields) do%}
     {*field.paramType*} {*field.paramName*};
 {%end%}
-    luabridge::LuaRef ToLuaTable(luabridge::lua_State* state) const;
-    void FromLuaTable(const luabridge::LuaRef& ref);
+    sol::object ToLuaObject(sol::state_view state) const;
+    void FromLuaObject(const sol::stack_table& obj);
 };
 ]]
 
 local structureSourceTemplate = 
 [[
 #include <stdlib.h>
-#include "{{structureName}}.h"
+#include "{*structureName*}.h"
 
-using namespace luabridge;
-
-luabridge::LuaRef {{structureName}}::ToLuaTable(luabridge::lua_State* state) const
+sol::object {*structureName*}::ToLuaObject(sol::state_view state) const
 {
-    LuaRef ret(state);
-{%for _, field  in pairs(fields) do%}
-    ret[{*field.paramName*}] = {*field.paramName*};
+    return state.create_table_with(
+{%for i = 1, #fields do%}
+        "{*fields[i].paramName*}", {*fields[i].paramName*}{%if i ~= #fields then%},{%end%} 
 {%end%}
-    return ret;
+    );
 }
 
-void {{structureName}}::FromLuaTable(const luabridge::LuaRef& ref)
+void {*structureName*}::FromLuaObject(const sol::stack_table& obj)
 {
 {%for _, field  in pairs(fields) do%}
-    {*field.paramName*} = ref["{*field.paramName*}"].cast<{*field.paramType*}>();
+    {*field.paramName*} = obj["{*field.paramName*}"];
 {%end%}
 }
 ]]
@@ -110,7 +108,7 @@ end
 
 local clientHeaderTemplate =
 [[
-#include "LuaBridge.h"
+#include "lang-cpp/sol2/single/sol/sol.hpp"
 {%for _, str  in pairs(structures) do%}
 #include "{*str.structureName*}.h"
 {%end%}
@@ -120,53 +118,52 @@ class {*interface*}
 {
 public:
     {*interface*}();
+    virtual ~{*interface*}();
 {%for _, func  in pairs(functions) do%}
     virtual {*func.output*} {*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%});
 {%end%}
 
 private:
-    luabridge::LuaRef GetFunction(const std::string& name);
-    luabridge::lua_State* m_luaState;
+    sol::function GetFunction(const std::string& name);
+    sol::state m_luaState;
 };
 ]]
 
 local clientSourceTemplate =
 [[
-#include <stdlib.h>
 #include "{*interface*}.h"
 
-using namespace luabridge;
-
 #define CHECK(x, msg) { \
-    if(x) { printf("ERROR at %s:%d\n\t%s ", __FILE__, __LINE__, #x); \
+    if(!x) { printf("ERROR at %s:%d\n\t%s ", __FILE__, __LINE__, #x); \
         throw std::runtime_error(msg);} }
 
 {*interface*}::{*interface*}()
-    : m_luaState(luaL_newstate())
 {
+    m_luaState.open_libraries();
     char* cPath = getenv("LUA_RPC_SDK");
-    std::string pathToSdk = cPath == NULL ? "./" : cPath;
-    CHECK(luaL_loadfile(m_luaState, (pathToSdk + "/loader.lua").c_str()), lua_tostring(m_luaState, -1));
-    luaL_openlibs(m_luaState);
-    CHECK(lua_pcall(m_luaState, 0, 0, 0), lua_tostring(m_luaState, -1));
-    LuaRef loadFunc = getGlobal(m_luaState, "LoadClientInterface");
-    CHECK(loadFunc.isNil(), "Unable to get LoadClientInterface function");
-    loadFunc("{*module*}", "{*interface*}", "cpp");
+    const std::string pathToLoader = (cPath == NULL ? "." : cPath) + std::string("/loader.lua");
+    CHECK(m_luaState.do_file(pathToLoader).valid(), "Unable to load loader");
+    sol::function loadInterfaceFunc = m_luaState["LoadClientInterface"];
+    CHECK(loadInterfaceFunc.valid(), "Unable to get LoadClientInterface function");
+    loadInterfaceFunc("{*module*}", "{*interface*}", "cpp");
 }
 
-LuaRef {*interface*}::GetFunction(const std::string& name)
+{*interface*}::~{*interface*}()
+{}
+
+sol::function {*interface*}::GetFunction(const std::string& name)
 {
-    LuaRef interface = getGlobal(m_luaState, "{*interface*}");
-    CHECK(interface.isNil(), "Unable to get Lua interface");
-    LuaRef func = interface[name];
-    CHECK(func.isNil(), "Unable to get Lua function object");
+    sol::table interface = m_luaState["{*interface*}"];
+    CHECK(interface.valid(), "Unable to get Lua interface");
+    sol::function func = interface[name];
+    CHECK(func.valid(), "Unable to get Lua function object");
     return func;
 }
 
 {%for _, func  in pairs(functions) do%}
 {*func.output*} {*interface*}::{*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%})
 {
-{-raw-}    {-raw-}{%if func.has_return then%}{-raw-}return {-raw-}{%end%}GetFunction("{*func.funcName*}")({%for i = 1, #func.input do%}{*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%}){%if func.has_return then%}.cast<{*func.output*}>(){%end%};
+{-raw-}    {-raw-}{%if func.has_return then%}{-raw-}return {-raw-}{%end%}GetFunction("{*func.funcName*}")({%for i = 1, #func.input do%}{*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%});//{%if func.has_return then%}.as<{*func.output*}>(){%end%};
 }
 
 {%end%}
@@ -204,52 +201,53 @@ end
 
 local serverHeaderTemplate =
 [[
-#include "LuaBridge.h"
-#include "lua.hpp"
+#include "lang-cpp/sol2/single/sol/sol.hpp"
 
 class {*interface*}
 {
 public:
     {*interface*}();
+    virtual ~{*interface*}();
 {%for _, func  in pairs(functions) do%}
     virtual {*func.output*} {*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%});
 {%end%}
 
 private:
-    luabridge::lua_State* m_luaState;
+    sol::state m_luaState;
 };
 ]]
 
 local serverSourceTemplate =
 [[
-#include <stdlib.h>
 #include "{*interface*}.h"
 
-using namespace luabridge;
-
 #define CHECK(x, msg) { \
-    if(x) { printf("ERROR at %s:%d\n\t%s ", __FILE__, __LINE__, #x); \
+    if(!x) { printf("ERROR at %s:%d\n\t%s ", __FILE__, __LINE__, #x); \
         throw std::runtime_error(msg);} }
 
-{{interface}}::{{interface}}()
-    : m_luaState(luaL_newstate())
+{*interface*}::{*interface*}()
 {
+    m_luaState.open_libraries();
     char* cPath = getenv("LUA_RPC_SDK");
-    std::string pathToSdk = cPath == NULL ? "./" : cPath;
-    CHECK(luaL_loadfile(m_luaState, (pathToSdk + "/loader.lua").c_str()), lua_tostring(m_luaState, -1));
-    luaL_openlibs(m_luaState);
-    getGlobalNamespace(m_luaState)
-        .beginClass<{{interface}}>("{{interface}}")
-{%for _, func  in pairs(functions) do%}
-            .addFunction("{*func.funcName*}", &{*interface*}::{*func.funcName*})
+    const std::string pathToLoader = (cPath == NULL ? "." : cPath) + std::string("/loader.lua");
+
+    sol::usertype<{*interface*}> type("new", sol::no_constructor,
+{%for i = 1, #functions do%}
+        "{*functions[i].funcName*}", &{*interface*}::{*functions[i].funcName*}{%if i ~= #functions then%},{%end%} 
 {%end%}
-        .endClass();
-    setGlobal(m_luaState, this, "{*interface*}");
-    CHECK(lua_pcall(m_luaState, 0, 0, 0), lua_tostring(m_luaState, -1));
-    LuaRef loadFunc = getGlobal(m_luaState, "LoadServerInterface");
-    CHECK(loadFunc.isNil(), "Unable to get LoadServerInterface function");
-    loadFunc("{*module*}", "{*interface*}", "cpp");
+    );
+    sol::stack::push(m_luaState, type);
+    sol::stack::pop<sol::object>(m_luaState);
+    m_luaState["{*interface*}"] = this;
+
+    CHECK(m_luaState.do_file(pathToLoader).valid(), "Unable to load loader");
+    sol::function loadInterfaceFunc = m_luaState["LoadServerInterface"];
+    CHECK(loadInterfaceFunc.valid(), "Unable to get LoadServerInterface function");
+    loadInterfaceFunc("{*module*}", "{*interface*}", "cpp");
 }
+
+{*interface*}::~{*interface*}()
+{}
 
 /*****************************************
  ***** PUT YOUR IMPLEMENTATION BELOW *****

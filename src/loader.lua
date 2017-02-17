@@ -2,7 +2,7 @@ function LoadClientInterface(module, name, lang)
 	package.path = package.path .. ";" .. os.getenv("LUA_RPC_SDK") .. "/?.lua"
 	require "helpers"
 	require "dsl"
-	require(lang)
+	require("lang-" .. lang .. ".binding")
 
 	dofile(module)
 	local interface = GetInterface(name)
@@ -18,7 +18,7 @@ function LoadServerInterface(module, name, lang)
 	package.path = package.path .. ";" .. os.getenv("LUA_RPC_SDK") .. "/?.lua"
 	require "helpers"
 	require "dsl"
-	require(lang)
+	require("lang-" .. lang .. ".binding")
 
 	dofile(module)
 	local interface = GetInterface(name)

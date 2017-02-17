@@ -37,7 +37,7 @@ if moduleName == nil or io.open(moduleName, "r") == nil then
 end
 
 require "dsl"
-generator = require(outputLang)
+generator = require("lang-" .. outputLang .. ".binding")
 
 dofile(moduleName)
 local interface = GetInterface(interfaceName)
