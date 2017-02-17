@@ -50,15 +50,6 @@ local function NewType()
                 r.paramName = name
                 storage.Store('types', r)
                 return r
-            end,
-            __concat = function(t, f)
-                Expect(IsType(t), "left operand of '..' is not a valid type")
-                Expect(IsFunction(f), "right operand of '..' is not a valid function")
-                local typeCopy = {}
-                table.rcopy(typeCopy, t)
-                storage.Store('types', typeCopy)
-                f.output = typeCopy
-                return f
             end
         }
     )
@@ -136,32 +127,52 @@ local function StructureImpl(name)
     return newStructure
 end
 
-local function FunctionImpl(name)
-    Expect(IsString(name), "string expected as a function name")
-    CheckName(name)
+local function FunctionImpl(param)
+    local f = {}
+    storage.Store('functions', f)
+
+    local outType = param
+    if IsString(param) then
+        -- Function name
+        CheckName(param)
+        outType = void
+        f.funcName = param
+    end
+    Expect(IsType(outType), "type expected as a function output")
+
+    local typeCopy = {}
+    table.rcopy(typeCopy, outType)
+    storage.Store('types', typeCopy)
+    f.output = typeCopy
+
     local mt = {
-        __call = function(func, params)
-            func.input = params
-            for _, v in pairs(params) do
-                Expect(IsType(v), string.format("one of '%s' function parameters is invalid", name))
-            end
-            setmetatable(func,
-                {
-                    __call = function(f, prop)
-                        Expect(IsFunction(f), "left operand of '..' is not a valid function")
-                        Expect(type(prop) == "table", "right operand of '..' is not a valid type")
-                        if prop[1] and type(prop[1]) == "function" then
-                            f.impl = prop[1]
+        __call = function(func, ...)
+            params = {...}
+            if func.funcName == nil then
+                Expect(IsString(params[1]), "string expected as a function name")
+                CheckName(params[1])
+                func.funcName = params[1]
+            else
+                func.input = params
+                for _, v in pairs(params) do
+                    Expect(IsType(v), string.format("one of '%s' function parameters is invalid", name))
+                end
+                setmetatable(func,
+                    {
+                        __call = function(f, prop)
+                            Expect(IsFunction(f), "left operand of '..' is not a valid function")
+                            Expect(type(prop) == "table", "right operand of '..' is not a valid type")
+                            if prop[1] and type(prop[1]) == "function" then
+                                f.impl = prop[1]
+                            end
+                            return f
                         end
-                        return f
-                    end
-                } 
-            )
+                    } 
+                )
+            end
             return func
         end
     }
-    local f = { funcName = name }
-    storage.Store('functions', f)
     setmetatable(f, mt)
     return f
 end
@@ -169,22 +180,22 @@ end
 --[[
     Public API
 ]]
-Int    = NewType()
-String = NewType()
-Void   = NewType()
-Float  = NewType()
-Double = NewType()
-Bool   = NewType()
+int    = NewType()
+str    = NewType()
+void   = NewType()
+float  = NewType()
+double = NewType()
+bool   = NewType()
 
-function Interface(name)
+function class(name)
     return InterfaceImpl(name)
 end
 
-function Function(name)
+function func(name)
     return FunctionImpl(name)
 end
 
-function Structure(name)
+function struct(name)
     return StructureImpl(name)
 end
 

@@ -1,12 +1,12 @@
 require "helpers"
 require "dsl"
 
-Int:SpecializeType('int', 0)
-String:SpecializeType('std::string', '')
-Void:SpecializeType('void', nil)
-Float:SpecializeType('float', 0)
-Double:SpecializeType('double', 0)
-Bool:SpecializeType('bool', false)
+int:SpecializeType('int', 0)
+str:SpecializeType('std::string', '')
+void:SpecializeType('void', nil)
+float:SpecializeType('float', 0)
+double:SpecializeType('double', 0)
+bool:SpecializeType('bool', false)
 
 local generator =
 {
@@ -28,7 +28,7 @@ local function CommonPreparation(funcs)
         end
         f.input = paramsCopy
         -- add separators
-        f.output = f.output or Void
+        f.output = f.output or void
         f.output = f.output.paramType
     end
     return funcs
@@ -176,7 +176,7 @@ end
 
 function generator:GenerateClientSource(moduleName)
     for _, func in pairs(self.functions) do
-        if func.output ~= Void.paramType then
+        if func.output ~= void.paramType then
             func.has_return = true
         end
     end
@@ -191,7 +191,7 @@ end
 function generator:GenerateServerFiles(moduleName)
     self:GenerateStructures()
     for _, f in pairs(self.functions) do
-        f.defOutput = f.output or Void
+        f.defOutput = f.output or void
         f.defOutput = f.defOutput.default
     end
     self.functions = CommonPreparation(self.functions)
@@ -273,7 +273,7 @@ end
 
 function generator:GenerateServerSource(moduleName)
     for _, func in pairs(self.functions) do
-        if func.output ~= Void.paramType then
+        if func.output ~= void.paramType then
             func.has_return = true
         end
     end

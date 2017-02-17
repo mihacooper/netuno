@@ -1,13 +1,13 @@
-Structure "SampleStructure"
+struct "SampleStructure"
 {
-	Int "field1",
-	String "field2"
+    int "field1";
+    str "field2";
 }
 
-Interface "SampleInterface"
+class "SampleInterface"
 {
-    Int .. Function "MyFunction1" { Int "param1", Int "param2"},
-    Int .. Function "MyFunction2" { Int "param1", String "param2"},
-    Function "MyFunction3" { Int "param1"},
-    String .. Function "MyFunction4" { }
+    func (int) "MyFunction1"(int "param1", int "param2");
+    func (int) "MyFunction2"(int "param1", str "param2");
+    func "MyFunction3"(int "param1");
+    func (str) "MyFunction4"();
 }
