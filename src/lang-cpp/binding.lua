@@ -15,25 +15,6 @@ local generator =
     structures = {},
 }
 
-local function CommonPreparation(funcs)
-    for _, f in pairs(funcs) do
-        -- add separators
-        local paramsCopy = {}
-        for _, param in pairs(f.input) do
-            table.insert(paramsCopy,
-                { paramType = param.paramType, paramName = param.paramName, comma = {{}}})
-        end
-        if #paramsCopy > 0 then
-            paramsCopy[#paramsCopy].comma = {}
-        end
-        f.input = paramsCopy
-        -- add separators
-        f.output = f.output or void
-        f.output = f.output.paramType
-    end
-    return funcs
-end
-
 function generator:SetInterfaceName(name)
     self.interfaceName = name
 end
@@ -42,8 +23,8 @@ function generator:AddFunction(func)
     table.insert(self.functions, func)
 end
 
-function generator:AddStructure(name, str)
-    table.insert(self.structures, { structureName = name, fields = str})
+function generator:AddStructure(str)
+    table.insert(self.structures, str)
 end
 
 --[[
@@ -52,47 +33,51 @@ end
 
 local structureHeaderTemplate = 
 [[
+#pragma once
 #include "lua.hpp"
 #include "lang-cpp/sol2/single/sol/sol.hpp"
 
-struct {*structureName*}
+struct {*name*}
 {
 {%for _, field  in pairs(fields) do%}
     {*field.paramType*} {*field.paramName*};
 {%end%}
-    sol::object ToLuaObject(sol::state_view state) const;
-    void FromLuaObject(const sol::stack_table& obj);
+
+    static sol::object ToLuaObject(sol::state_view state, {*name*} str);
+    static {*name*} FromLuaObject(const sol::stack_table& obj);
 };
 ]]
 
 local structureSourceTemplate = 
 [[
 #include <stdlib.h>
-#include "{*structureName*}.h"
+#include "{*name*}.h"
 
-sol::object {*structureName*}::ToLuaObject(sol::state_view state) const
+sol::object {*name*}::ToLuaObject(sol::state_view state, {*name*} str)
 {
     return state.create_table_with(
 {%for i = 1, #fields do%}
-        "{*fields[i].paramName*}", {*fields[i].paramName*}{%if i ~= #fields then%},{%end%} 
+        "{*fields[i].paramName*}", str.{*fields[i].paramName*}{%if i ~= #fields then%},{%end%} 
 {%end%}
     );
 }
 
-void {*structureName*}::FromLuaObject(const sol::stack_table& obj)
+{*name*} {*name*}::FromLuaObject(const sol::stack_table& obj)
 {
+    {*name*} str;
 {%for _, field  in pairs(fields) do%}
-    {*field.paramName*} = obj["{*field.paramName*}"];
+    str.{*field.paramName*} = obj["{*field.paramName*}"];
 {%end%}
+    return str;
 }
 ]]
 
 function generator:GenerateStructures(moduleName)
     for _, str in pairs(self.structures) do
         local headBody = generate(structureHeaderTemplate, str)
-        WriteToFile(str.structureName .. ".h", headBody)
+        WriteToFile(str.name .. ".h", headBody)
         local srcBody = generate(structureSourceTemplate, str)
-        WriteToFile(str.structureName .. ".cpp", srcBody)
+        WriteToFile(str.name .. ".cpp", srcBody)
     end
 end
 
@@ -101,16 +86,16 @@ end
 ]]
 function generator:GenerateClientFiles(moduleName)
     self:GenerateStructures()
-    self.functions = CommonPreparation(self.functions)
     self:GenerateClientHeader(moduleName)
     self:GenerateClientSource(moduleName)
 end
 
 local clientHeaderTemplate =
 [[
+#pragma once
 #include "lang-cpp/sol2/single/sol/sol.hpp"
 {%for _, str  in pairs(structures) do%}
-#include "{*str.structureName*}.h"
+#include "{*str.name*}.h"
 {%end%}
 #include "lua.hpp"
 
@@ -120,12 +105,12 @@ public:
     {*interface*}();
     virtual ~{*interface*}();
 {%for _, func  in pairs(functions) do%}
-    virtual {*func.output*} {*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%});
+    virtual {*func.output.paramType*} {*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%});
 {%end%}
 
 private:
-    sol::function GetFunction(const std::string& name);
     sol::state m_luaState;
+    sol::table m_interface;
 };
 ]]
 
@@ -146,24 +131,19 @@ local clientSourceTemplate =
     sol::function loadInterfaceFunc = m_luaState["LoadClientInterface"];
     CHECK(loadInterfaceFunc.valid(), "Unable to get LoadClientInterface function");
     loadInterfaceFunc("{*module*}", "{*interface*}", "cpp");
+    m_interface = m_luaState["{*interface*}"];
+    CHECK(m_interface.valid(), "Unable to get Lua interface");
 }
 
 {*interface*}::~{*interface*}()
 {}
 
-sol::function {*interface*}::GetFunction(const std::string& name)
-{
-    sol::table interface = m_luaState["{*interface*}"];
-    CHECK(interface.valid(), "Unable to get Lua interface");
-    sol::function func = interface[name];
-    CHECK(func.valid(), "Unable to get Lua function object");
-    return func;
-}
-
 {%for _, func  in pairs(functions) do%}
-{*func.output*} {*interface*}::{*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%})
+{*func.output.paramType*} {*interface*}::{*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%})
 {
-{-raw-}    {-raw-}{%if func.has_return then%}{-raw-}return {-raw-}{%end%}GetFunction("{*func.funcName*}")({%for i = 1, #func.input do%}{*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%});//{%if func.has_return then%}.as<{*func.output*}>(){%end%};
+    sol::function func = m_interface["{*func.funcName*}"];
+    CHECK(func.valid(), "Unable to get Lua function object");
+{-raw-}    {-raw-}{%if func.has_return then%}{-raw-}return {-raw-}{%if func.output.fromLua then%}{*func.output.fromLua*}{%end%}{%end%}(func(m_interface{%for i = 1, #func.input do%}, {%if func.input[i].toLua then%}{*func.input[i].toLua*}(m_luaState,{%else%}({%end%}{*func.input[i].paramName*}){%end%}));
 }
 
 {%end%}
@@ -176,7 +156,7 @@ end
 
 function generator:GenerateClientSource(moduleName)
     for _, func in pairs(self.functions) do
-        if func.output ~= void.paramType then
+        if func.output and func.output.paramType ~= void.paramType then
             func.has_return = true
         end
     end
@@ -194,7 +174,6 @@ function generator:GenerateServerFiles(moduleName)
         f.defOutput = f.output or void
         f.defOutput = f.defOutput.default
     end
-    self.functions = CommonPreparation(self.functions)
     self:GenerateServerHeader(moduleName)
     self:GenerateServerSource(moduleName)
 end
@@ -209,7 +188,7 @@ public:
     {*interface*}();
     virtual ~{*interface*}();
 {%for _, func  in pairs(functions) do%}
-    virtual {*func.output*} {*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%});
+    virtual {*func.output.paramType*} {*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%});
 {%end%}
 
 private:
@@ -254,10 +233,10 @@ local serverSourceTemplate =
  *****************************************/
 
 {%for _, func  in pairs(functions) do%}
-{*func.output*} {*interface*}::{*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%})
+{*func.output.paramType*} {*interface*}::{*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%})
 {%if func.has_return then%}
 {
-    return {*func.output*}();
+    return {*func.output.paramType*}();
 }
 {%else%}
 {}

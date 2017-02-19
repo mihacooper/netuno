@@ -1,4 +1,16 @@
 require "helpers"
+
+setmetatable(_G,
+    {
+        __index = function(self, key)
+            local val = rawget(self, key)
+            if val == nil then
+                return key
+            end
+            return val
+        end
+    }
+)
 --[[
     Storage
 ]]
@@ -43,7 +55,7 @@ local function NewType()
     end
 
     setmetatable(t,
-        { 
+        {
             __call = function(t, name)
                 local r = {}
                 table.rcopy(r, t)
@@ -114,16 +126,23 @@ local function StructureImpl(name)
     CheckName(name)
     local mt = {
         __call = function(i, body)
+            local as_type = NewType()
+            _G[name] = as_type
+            as_type.paramType = i.name
+            as_type.toLua = i.name .. "::ToLuaObject"
+            as_type.fromLua = i.name .. "::FromLuaObject"
             for _, v in pairs(body) do
                 Expect(IsType(v), string.format("one of '%s' structure fields is invalid", name))
             end
-            table.copy(i, body)
-            return i
+            i.fields = {}
+            table.copy(i.fields, body)
+            return as_type
         end
     }
-    local newStructure = {}
+    local newStructure = { name = name }
     setmetatable(newStructure, mt)
-    structures[name] = newStructure
+    table.insert(structures, newStructure)
+    storage.Store('types', newStructure)
     return newStructure
 end
 
@@ -152,23 +171,16 @@ local function FunctionImpl(param)
                 Expect(IsString(params[1]), "string expected as a function name")
                 CheckName(params[1])
                 func.funcName = params[1]
-            else
+            elseif func.input == nil then
                 func.input = params
                 for _, v in pairs(params) do
                     Expect(IsType(v), string.format("one of '%s' function parameters is invalid", name))
                 end
-                setmetatable(func,
-                    {
-                        __call = function(f, prop)
-                            Expect(IsFunction(f), "left operand of '..' is not a valid function")
-                            Expect(type(prop) == "table", "right operand of '..' is not a valid type")
-                            if prop[1] and type(prop[1]) == "function" then
-                                f.impl = prop[1]
-                            end
-                            return f
-                        end
-                    } 
-                )
+            else
+                Expect(IsTable(params[1]), "table of function's properties expected")
+                for k, v in pairs(params[1]) do
+                    func[k] = v
+                end
             end
             return func
         end

@@ -49,7 +49,7 @@ end
 
 local structures = GetStructures()
 for name, str in pairs(structures) do
-    generator:AddStructure(name, str)
+    generator:AddStructure(str)
 end
 
 if In(returnType, {'client', both}) then
