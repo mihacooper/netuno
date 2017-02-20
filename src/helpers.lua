@@ -53,25 +53,21 @@ function table.iforeach(array, func)
     return res
 end
 
-function WriteToFile(filename, data)
+function write_to_file(filename, data)
     local file = io.open(filename, "w")
     file:write(data)
     file:close()
 end
 
-function ToString(val)
-    return val .. ''
-end
-
-function IsTable(val)
+function is_table(val)
     return type(val) == type({})
 end
 
-function IsString(val)
+function is_string(val)
     return type(val) == type('')
 end
 
-function In(val, cont)
+function value_in_table(val, cont)
     for _, v in pairs(cont) do
         if v == val then
             return true

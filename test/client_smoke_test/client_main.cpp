@@ -18,8 +18,8 @@ int return_code = 0;
     { \
         auto got = (f); \
         if ( ! (got == res)) {\
-            std::cout << "Error: " << #f << " returns " << got << ", but " \
-                << res << " expected" << std::endl; \
+            std::cout << "Error: " << #f << " returns " << got << ", but '" \
+                << res << "' expected" << std::endl; \
             return_code = 1; \
         } \
     }

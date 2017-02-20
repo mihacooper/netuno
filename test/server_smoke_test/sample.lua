@@ -1,13 +1,13 @@
 struct "SampleStructure"
 {
-    int "field1";
-    str "field2";
+    int_t "field1";
+    str_t "field2";
 }
 
 class "SampleInterface"
 {
-    func (int) "MyFunction1"(int "param1", int "param2");
-    func (int) "MyFunction2"(int "param1", str "param2");
-    func "MyFunction3"(int "param1");
-    func (str) "MyFunction4"();
+    func "MyFunction1": SampleStructure(int_t "param1", int_t "param2");
+    func "MyFunction2": int_t(SampleStructure "param1", str_t "param2");
+    func "MyFunction3": none_t(int_t "param1");
+    func "MyFunction4": str_t();
 }

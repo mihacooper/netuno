@@ -17,30 +17,7 @@ struct:specialize_type(
     }
 )
 
-local generator =
-{
-    interfaceName = "__InvalidValue__",
-    functions = {},
-    structures = {},
-}
-
-function generator:SetInterfaceName(name)
-    self.interfaceName = name
-end
-
-function generator:AddFunction(func)
-    table.insert(self.functions, func)
-end
-
-function generator:AddStructure(str)
-    table.insert(self.structures, str)
-end
-
---[[
-    Structures
-]]
-
-local structureHeaderTemplate = 
+local structure_header_template = 
 [[
 #pragma once
 #include "lua.hpp"
@@ -57,7 +34,7 @@ struct {*name*}
 };
 ]]
 
-local structureSourceTemplate = 
+local structure_source_template = 
 [[
 #include <stdlib.h>
 #include "{*name*}.h"
@@ -81,25 +58,7 @@ sol::object {*name*}::ToLuaObject(sol::state_view state, {*name*} str)
 }
 ]]
 
-function generator:GenerateStructures(moduleName)
-    for _, str in pairs(self.structures) do
-        local headBody = generate(structureHeaderTemplate, str)
-        WriteToFile(str.name .. ".h", headBody)
-        local srcBody = generate(structureSourceTemplate, str)
-        WriteToFile(str.name .. ".cpp", srcBody)
-    end
-end
-
---[[
-    Client
-]]
-function generator:GenerateClientFiles(moduleName)
-    self:GenerateStructures()
-    self:GenerateClientHeader(moduleName)
-    self:GenerateClientSource(moduleName)
-end
-
-local clientHeaderTemplate =
+local client_header_template =
 [[
 #pragma once
 #include "lang-cpp/sol2/single/sol/sol.hpp"
@@ -113,7 +72,7 @@ class {*interface*}
 public:
     {*interface*}();
     virtual ~{*interface*}();
-{%for _, func  in pairs(functions) do%}
+{%for _, func  in ipairs(functions) do%}
     virtual {*func.output.lang.name*} {*func.name*}({%for i = 1, #func.input do%}{*func.input[i].type.lang.name*} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%});
 {%end%}
 
@@ -123,7 +82,7 @@ private:
 };
 ]]
 
-local clientSourceTemplate =
+local client_source_template =
 [[
 #include "{*interface*}.h"
 
@@ -134,12 +93,13 @@ local clientSourceTemplate =
 {*interface*}::{*interface*}()
 {
     m_luaState.open_libraries();
-    char* cPath = getenv("LUA_RPC_SDK");
-    const std::string pathToLoader = (cPath == NULL ? "." : cPath) + std::string("/loader.lua");
-    CHECK(m_luaState.do_file(pathToLoader).valid(), "Unable to load loader");
-    sol::function loadInterfaceFunc = m_luaState["LoadClientInterface"];
-    CHECK(loadInterfaceFunc.valid(), "Unable to get LoadClientInterface function");
-    loadInterfaceFunc("{*module*}", "{*interface*}", "cpp");
+    const char* cPath = getenv("LUA_RPC_SDK");
+    const std::string sdkPath = cPath ? cPath : ".";
+    const std::string pathToLoader = sdkPath + std::string("/loader.lua");
+    m_luaState.script("package.path = package.path .. ';' .. '" + sdkPath + "' .. '/?.lua'");
+    sol::function loadInterfaceFunc = m_luaState.script_file(pathToLoader);
+    CHECK(loadInterfaceFunc.valid(), "Unable to load loader");
+    loadInterfaceFunc("{*module_name*}", "{*interface*}", "cpp", "client");
     m_interface = m_luaState["{*interface*}"];
     CHECK(m_interface.valid(), "Unable to get Lua interface");
 }
@@ -147,57 +107,31 @@ local clientSourceTemplate =
 {*interface*}::~{*interface*}()
 {}
 
-{%for _, func  in pairs(functions) do%}
+{%for _, func  in ipairs(functions) do%}
 {*func.output.lang.name*} {*interface*}::{*func.name*}({%for i = 1, #func.input do%}{*func.input[i].type.lang.name*} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%})
 {
-    sol::function func = m_interface["{*func.name*}"];
+    sol::function func = m_interface["functions"]["{*func.name*}"]["impl"];
     CHECK(func.valid(), "Unable to get Lua function object");
-{-raw-}    {-raw-}{%if func.has_return then%}{-raw-}return {-raw-}{%if func.output.lang.from_lua then%}{*func.output.lang.from_lua*}{%end%}{%end%}(func(m_interface{%for i = 1, #func.input do%}, {%if func.input[i].type.lang.to_lua then%}{*func.input[i].type.lang.to_lua*}(m_luaState,{%else%}({%end%}{*func.input[i].name*}){%end%}));
+{-raw-}    {-raw-}{%if func.output ~= none_t then%}{-raw-}return {-raw-}{%if func.output.lang.from_lua then%}{*func.output.lang.from_lua*}{%end%}{%end%}(func(m_interface{%for i = 1, #func.input do%}, {%if func.input[i].type.lang.to_lua then%}{*func.input[i].type.lang.to_lua*}(m_luaState,{%else%}({%end%}{*func.input[i].name*}){%end%}));
 }
 
 {%end%}
 ]]
 
-function generator:GenerateClientHeader(moduleName)
-    local body = generate(clientHeaderTemplate, { structures = self.structures, interface = self.interfaceName, functions = self.functions})
-    WriteToFile(self.interfaceName .. ".h", body)
-end
-
-function generator:GenerateClientSource(moduleName)
-    for _, func in pairs(self.functions) do
-        if func.output and func.output ~= none_t then
-            func.has_return = true
-        end
-    end
-    local body = generate(clientSourceTemplate, { module = moduleName, interface = self.interfaceName,
-            functions = self.functions, pathToSdk = os.getenv("")})
-    WriteToFile(self.interfaceName .. ".cpp", body)
-end
-
---[[
-    Server
-]]
-function generator:GenerateServerFiles(moduleName)
-    self:GenerateStructures()
-    for _, f in pairs(self.functions) do
-        f.defOutput = f.output or void
-        f.defOutput = f.defOutput.default
-    end
-    self:GenerateServerHeader(moduleName)
-    self:GenerateServerSource(moduleName)
-end
-
 local serverHeaderTemplate =
 [[
 #include "lang-cpp/sol2/single/sol/sol.hpp"
+{%for _, str  in pairs(structures) do%}
+#include "{*str.name*}.h"
+{%end%}
 
 class {*interface*}
 {
 public:
     {*interface*}();
     virtual ~{*interface*}();
-{%for _, func  in pairs(functions) do%}
-    virtual {*func.type.output.paramType*} {*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%});
+{%for _, func  in ipairs(functions) do%}
+    virtual {*func.output.lang.name*} {*func.name*}({%for i = 1, #func.input do%}{*func.input[i].type.lang.name*} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%});
 {%end%}
 
 private:
@@ -216,22 +150,23 @@ local serverSourceTemplate =
 {*interface*}::{*interface*}()
 {
     m_luaState.open_libraries();
-    char* cPath = getenv("LUA_RPC_SDK");
-    const std::string pathToLoader = (cPath == NULL ? "." : cPath) + std::string("/loader.lua");
+    const char* cPath = getenv("LUA_RPC_SDK");
+    const std::string sdkPath = cPath ? cPath : ".";
+    const std::string pathToLoader = sdkPath + std::string("/loader.lua");
+    m_luaState.script("package.path = package.path .. ';' .. '" + sdkPath + "' .. '/?.lua'");
+
+    sol::function loadInterfaceFunc = m_luaState.script_file(pathToLoader);
+    CHECK(loadInterfaceFunc.valid(), "Unable to load loader");
+    loadInterfaceFunc("{*module_name*}", "{*interface*}", "cpp", "client");
 
     sol::usertype<{*interface*}> type("new", sol::no_constructor,
 {%for i = 1, #functions do%}
-        "{*functions[i].funcName*}", &{*interface*}::{*functions[i].funcName*}{%if i ~= #functions then%},{%end%} 
+        "{*functions[i].name*}", &{*interface*}::{*functions[i].name*}{%if i ~= #functions then%},{%end%} 
 {%end%}
     );
     sol::stack::push(m_luaState, type);
     sol::stack::pop<sol::object>(m_luaState);
-    m_luaState["{*interface*}"] = this;
-
-    CHECK(m_luaState.do_file(pathToLoader).valid(), "Unable to load loader");
-    sol::function loadInterfaceFunc = m_luaState["LoadServerInterface"];
-    CHECK(loadInterfaceFunc.valid(), "Unable to get LoadServerInterface function");
-    loadInterfaceFunc("{*module*}", "{*interface*}", "cpp");
+    m_luaState["{*interface*}"]["server"] = this;
 }
 
 {*interface*}::~{*interface*}()
@@ -241,11 +176,11 @@ local serverSourceTemplate =
  ***** PUT YOUR IMPLEMENTATION BELOW *****
  *****************************************/
 
-{%for _, func  in pairs(functions) do%}
-{*func.type.output.paramType*} {*interface*}::{*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%})
-{%if func.has_return then%}
+{%for _, func  in ipairs(functions) do%}
+{*func.output.lang.name*} {*interface*}::{*func.name*}({%for i = 1, #func.input do%}{*func.input[i].type.lang.name*} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%})
+{%if func.output ~= none_t then%}
 {
-    return {*func.type.output.paramType*}();
+    return {*func.output.lang.name*}();
 }
 {%else%}
 {}
@@ -254,19 +189,28 @@ local serverSourceTemplate =
 {%end%}
 ]]
 
-function generator:GenerateServerHeader(moduleName)
-    local body = generate(serverHeaderTemplate, { structures = self.structures, interface = self.interfaceName, functions = self.functions})
-    WriteToFile(self.interfaceName .. ".h", body)
-end
-
-function generator:GenerateServerSource(moduleName)
-    for _, func in pairs(self.functions) do
-        if func.type.output ~= void.paramType then
-            func.has_return = true
-        end
+return function(interface, props)
+    local structs = GetStructures()
+    for _, str in pairs(structs) do
+        local head_body = generate(structure_header_template, str)
+        write_to_file(str.name .. ".h", head_body)
+        local src_body = generate(structure_source_template, str)
+        write_to_file(str.name .. ".cpp", src_body)
     end
-    local body = generate(serverSourceTemplate, { module = moduleName, interface = self.interfaceName, functions = self.functions})
-    WriteToFile(self.interfaceName .. ".cpp", body)
-end
+    if target == "client" then
+        local head_body = generate(client_header_template, { structures = structs, interface = interface.name,
+                functions = interface.functions})
+        write_to_file(interface.name .. ".h", head_body)
 
-return generator
+        local src_body = generate(client_source_template, { module_name = props.module_name, interface = interface.name,
+                functions = interface.functions, none_t = none_t})
+        write_to_file(interface.name .. ".cpp", src_body)
+    elseif target == "server" then
+        local head_body = generate(serverHeaderTemplate, { structures = structs, interface = interface.name, functions = interface.functions})
+        write_to_file(interface.name .. ".h", head_body)
+
+        local src_body = generate(serverSourceTemplate, { module_name = props.module_name, interface = interface.name,
+                functions = interface.functions, none_t = none_t})
+        write_to_file(interface.name .. ".cpp", src_body)
+   end
+end

@@ -7,7 +7,7 @@ local function CheckName(name)
     end
 end
 
-function new_type()
+function new_type(creator)
     local t = {}
 
     function t:specialize_type(specific)
@@ -20,6 +20,9 @@ function new_type()
             __call = function(t, name)
                 CheckName(name)
                 local instance = { type = t, name = name}
+                if creator then
+                    creator(instance)
+                end
                 if t.lang and t.lang.new_instance then
                     t.lang.new_instance(instance)
                 end
@@ -73,6 +76,7 @@ class = new_metatype(
                 __call = function(cl, body)
                     cl.functions = {}
                     for k,v in ipairs(body) do
+                        cl.functions[v.name] = v
                         cl.functions[k] = v
                     end
                     cl:finalize_type()
@@ -101,7 +105,7 @@ struct = new_metatype(
     end
 )
 
-func = new_metatype(
+func = new_type(
     function(self)
         setmetatable(self,
             {
@@ -113,7 +117,6 @@ func = new_metatype(
                     end
                     return function(self, ...)
                         self.input = {...}
-                        self:finalize_type()
                         setmetatable(self, {
                                 __call = function(f, props)
                                     for k,v in pairs(props) do

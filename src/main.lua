@@ -1,9 +1,6 @@
 #!/usr/bin/lua
 
-require "os"
 package.path = package.path .. ";" .. os.getenv("LUA_RPC_SDK") .. "/?.lua"
-require "string"
-require "helpers"
 
 HELP =
 "./main.lua [module] [interface] [language] [type] \
@@ -13,49 +10,21 @@ HELP =
     type       - client or server source file. \
 "
 
-local moduleName    = arg[1]
-local interfaceName = arg[2]
-local outputLang    = arg[3]
-local returnType    = arg[4] or 'both'
+local module_name = arg[1]
+local class_Name  = arg[2]
+local language    = arg[3]
+local target      = arg[4]
 
-if not In(returnType, {'client', 'server', 'both'}) then
-    print("Invalid 'type' = " .. returnType)
+local loader = require "loader"
+local ret, generator = loader(module_name, class_Name, language, target)
+if not ret then
+    print(generator) -- it's error message
     print(HELP)
-    os.exit(0)
+    os.exit(1)
 end
 
-if not In(outputLang, {'cpp'}) then
-    print("Invalid 'language' = " .. returnType)
-    print(HELP)
-    os.exit(0)
-end
-
-if moduleName == nil or io.open(moduleName, "r") == nil then
-    print("Invalid module file")
-    print(HELP)
-    os.exit(0)
-end
-
-require "dsl"
-generator = require("lang-" .. outputLang .. ".binding")
-
-dofile(moduleName)
-local interface = _G[interfaceName]
-generator:SetInterfaceName(interfaceName)
-
-for _, func in pairs(interface.functions) do
-    generator:AddFunction(func)
-end
-
-local structures = GetStructures()
-for name, str in pairs(structures) do
-    generator:AddStructure(str)
-end
-
-if In(returnType, {'client', both}) then
-    generator:GenerateClientFiles(moduleName)
-elseif In(returnType, {'server', both}) then
-    generator:GenerateServerFiles(moduleName)
-else
-    print("Output type is not selected")
+local ret, msg = pcall(generator, _G[class_Name], { module_name = module_name })
+if not ret then
+    print(msg)
+    os.exit(1)
 end

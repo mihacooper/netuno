@@ -1,35 +1,29 @@
-function LoadClientInterface(module, name, lang)
-	package.path = package.path .. ";" .. os.getenv("LUA_RPC_SDK") .. "/?.lua"
-	require "helpers"
-	require "dsl"
-	require("lang-" .. lang .. ".binding")
+require "os"
+require "string"
+require "helpers"
 
-	dofile(module)
-	local interface = _G[name]
-	for _, func in pairs(interface.functions) do
-	    interface[func.name] = func.impl
-	end
-end
+return function(module_name, class_name, language, target)
+    local root_dir = os.getenv("LUA_RPC_SDK") or "."
+    _G.target = target
 
-function LoadServerInterface(module, name, lang)
-	package.path = package.path .. ";" .. os.getenv("LUA_RPC_SDK") .. "/?.lua"
-	require "helpers"
-	require "dsl"
-	require("lang-" .. lang .. ".binding")
+    if not value_in_table(target, {'client', 'server'}) then
+        return false, "Invalid target: " .. target
+    end
 
-	dofile(module)
-	local interface = GetInterface(name)
-	interface.impl = _G[name]
-	_G[name] = interface
-	for _, func in ipairs(interface) do
-	    if IsTable(func) then
-	        interface[func.funcName] =
-	        	function(...)
-	        		return _G[name].impl[func.funcName](_G[name].impl, ...) 
-	        	end
-	    end
-	end
-	-- ++ JUST FOR TEST
-	print(GetInterface(name).MyFunction1(1, 2))
-	-- -- JUST FOR TEST
+    if module_name == nil or io.open(module_name, "r") == nil then
+        return false, "Invalid module file: " .. module_name
+    end
+
+    require "dsl"
+    if language == nil or io.open(root_dir .. "/lang-" .. language .. "/binding.lua", "r") == nil then
+        return false, "Invalid language: " .. language
+    end
+
+    generator = require("lang-" .. language .. ".binding")
+
+    local ret, err = pcall(dofile, module_name)
+    if not ret then
+        return false, err
+    end
+    return true, generator
 end
