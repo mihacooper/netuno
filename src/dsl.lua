@@ -1,74 +1,5 @@
 require "helpers"
 
-setmetatable(_G,
-    {
-        __index = function(self, key)
-            local val = rawget(self, key)
-            if val == nil then
-                return key
-            end
-            return val
-        end
-    }
-)
---[[
-    Storage
-]]
-local storage = {}
-function storage.Store(type, value)
-    if storage[type] == nil then
-        storage[type] = {}
-    end
-    table.insert(storage[type], value)
-end
-
-function storage.Check(type, value)
-    if storage[type] == nil then
-        storage[type] = {}
-    end
-    for _, val in pairs(storage[type]) do
-        if val == value then
-            return true
-        end
-    end
-    return false
-end
-
-local function IsFunction(func)
-    return storage.Check('functions', func)
-end
-
-local function IsType(t)
-    return storage.Check('types', t)
-end
-
---[[
-    Types
-]]
-local function NewType()
-    local t = {}
-
-    function t:SpecializeType(name, def)
-        self.paramType = name
-        self.default = def
-        self.SpecializeType = nil
-    end
-
-    setmetatable(t,
-        {
-            __call = function(t, name)
-                local r = {}
-                table.rcopy(r, t)
-                r.paramName = name
-                storage.Store('types', r)
-                return r
-            end
-        }
-    )
-    storage.Store('types', t)
-    return t
-end
-
 local function CheckName(name)
     first, last = string.find(name, '[%a|_][%a|_|%d]+')
     if not(first == 1 and last == #name) then
@@ -76,144 +7,138 @@ local function CheckName(name)
     end
 end
 
-local function GetFunctionImpl(func)
-    return function(...)
-        local params = {...}
-        local strParams = ''
-        for i in ipairs(func.input) do
-            local p = func.input[i]
-            strParams = strParams .. string.format("%s %s = %s, ", p.paramType, p.paramName, params[i])
-        end
-        if #strParams > 0 then
-            strParams = string.sub(strParams, 0, #strParams - 2)
-        end
-        local ret = ''
-        if func.output ~= nil then
-            local def = func.output.default
-            if def == '' then
-                def = "''"
-            end
-            ret = string.format(" -> %s(%s)", def, func.output.paramType)
-        end
-        print(string.format("%s(%s)%s", func.funcName, strParams, ret))
-        if func.output ~= nil then
-            return func.output.default
-        end
+function new_type()
+    local t = {}
+
+    function t:specialize_type(specific)
+        self.lang = specific
+        self.specialize_type = nil
     end
-end
 
-local interfaces = {}
-local function InterfaceImpl(name)
-    CheckName(name)
-    local mt = {
-        __call = function(i, body)
-            for _, v in pairs(body) do
-                Expect(IsFunction(v), string.format("one of '%s' interface fields is invalid", name))
-                v.impl = v.impl or GetFunctionImpl(v)
+    setmetatable(t,
+        {
+            __call = function(t, name)
+                CheckName(name)
+                local instance = { type = t, name = name}
+                if t.lang and t.lang.new_instance then
+                    t.lang.new_instance(instance)
+                end
+                return instance
             end
-            table.copy(i, body)
-            return i
-        end
-    }
-    local newInterface = {}
-    setmetatable(newInterface, mt)
-    interfaces[name] = newInterface
-    return newInterface
+        }
+    )
+    return t
 end
 
-local structures = {}
-local function StructureImpl(name)
-    CheckName(name)
-    local mt = {
-        __call = function(i, body)
-            local as_type = NewType()
-            _G[name] = as_type
-            as_type.paramType = i.name
-            as_type.toLua = i.name .. "::ToLuaObject"
-            as_type.fromLua = i.name .. "::FromLuaObject"
-            for _, v in pairs(body) do
-                Expect(IsType(v), string.format("one of '%s' structure fields is invalid", name))
-            end
-            i.fields = {}
-            table.copy(i.fields, body)
-            return as_type
-        end
-    }
-    local newStructure = { name = name }
-    setmetatable(newStructure, mt)
-    table.insert(structures, newStructure)
-    storage.Store('types', newStructure)
-    return newStructure
-end
-
-local function FunctionImpl(param)
-    local f = {}
-    storage.Store('functions', f)
-
-    local outType = param
-    if IsString(param) then
-        -- Function name
-        CheckName(param)
-        outType = void
-        f.funcName = param
+function new_metatype(creator)
+    if type(creator) ~= "function" then
+        error("metatype's creator is not a function: " .. tostring(creator))
     end
-    Expect(IsType(outType), "type expected as a function output")
 
-    local typeCopy = {}
-    table.rcopy(typeCopy, outType)
-    storage.Store('types', typeCopy)
-    f.output = typeCopy
+    local t = {}
 
-    local mt = {
-        __call = function(func, ...)
-            params = {...}
-            if func.funcName == nil then
-                Expect(IsString(params[1]), "string expected as a function name")
-                CheckName(params[1])
-                func.funcName = params[1]
-            elseif func.input == nil then
-                func.input = params
-                for _, v in pairs(params) do
-                    Expect(IsType(v), string.format("one of '%s' function parameters is invalid", name))
+    function t:specialize_type(specific)
+        self.lang = specific
+        self.specialize_type = nil
+    end
+
+    setmetatable(t,
+        {
+            __call = function(t, name)
+                CheckName(name)
+                local blank = { name = name, type = t, lang = t.lang}
+                function blank:finalize_type()
+                    local ntype = new_type()
+                    for k,v in pairs(self) do
+                        ntype[k] = v
+                    end
+                    ntype:specialize_type(self.lang)
+                    if ntype.lang and ntype.lang.new_type then
+                        ntype.lang.new_type(ntype)
+                    end
+                    _G[self.name] = ntype
                 end
-            else
-                Expect(IsTable(params[1]), "table of function's properties expected")
-                for k, v in pairs(params[1]) do
-                    func[k] = v
-                end
+                creator(blank)
+                return blank
             end
-            return func
-        end
-    }
-    setmetatable(f, mt)
-    return f
+        }
+    )
+    return t
 end
+
+class = new_metatype(
+    function(self)
+        setmetatable(self,
+            {
+                __call = function(cl, body)
+                    cl.functions = {}
+                    for k,v in ipairs(body) do
+                        cl.functions[k] = v
+                    end
+                    cl:finalize_type()
+                end
+            }
+        )
+    end
+)
+
+structures = {}
+struct = new_metatype(
+    function(self)
+        setmetatable(self,
+            {
+                __call = function(str, body)
+                    str.fields = {}
+                    for k,v in ipairs(body) do
+                        str.fields[k] = v
+                    end
+                    str:finalize_type()
+                    table.insert(structures, _G[str.name])
+                    return i
+                end
+            }
+        )
+    end
+)
+
+func = new_metatype(
+    function(self)
+        setmetatable(self,
+            {
+                __index = function(f, output_name)
+                    getmetatable(f).__index = nil
+                    f.output = _G[output_name]
+                    if f.output == nil then
+                        error("Invalid function " .. f.name .. " output: " .. tostring(output_name))
+                    end
+                    return function(self, ...)
+                        self.input = {...}
+                        self:finalize_type()
+                        setmetatable(self, {
+                                __call = function(f, props)
+                                    for k,v in pairs(props) do
+                                        f[k] = v
+                                    end
+                                    return f
+                                end
+                            })
+                        return self
+                    end
+                end
+            }
+        )
+    end
+)
 
 --[[
     Public API
 ]]
-int    = NewType()
-str    = NewType()
-void   = NewType()
-float  = NewType()
-double = NewType()
-bool   = NewType()
-
-function class(name)
-    return InterfaceImpl(name)
-end
-
-function func(name)
-    return FunctionImpl(name)
-end
-
-function struct(name)
-    return StructureImpl(name)
-end
-
-function GetInterface(name)
-    return interfaces[name]
-end
+int_t    = new_type()
+str_t    = new_type()
+none_t   = new_type()
+float_t  = new_type()
+double_t = new_type()
+bool_t   = new_type()
 
 function GetStructures()
     return structures

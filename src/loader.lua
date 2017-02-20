@@ -5,12 +5,9 @@ function LoadClientInterface(module, name, lang)
 	require("lang-" .. lang .. ".binding")
 
 	dofile(module)
-	local interface = GetInterface(name)
-	 _G[name] = interface
-	for _, func in pairs(interface) do
-	    if IsTable(func) then
-	        interface[func.funcName] = func.impl
-	    end
+	local interface = _G[name]
+	for _, func in pairs(interface.functions) do
+	    interface[func.name] = func.impl
 	end
 end
 

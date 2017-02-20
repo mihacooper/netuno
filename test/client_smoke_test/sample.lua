@@ -1,19 +1,36 @@
 struct "SampleStructure"
 {
-    int "field1";
-    str "field2";
+    int_t "field1";
+    str_t "field2";
 }
 
 class "SampleInterface"
 {
-    func (SampleStructure) "MyFunction1"(int "param1", int "param2")
+    func "MyFunction1": SampleStructure(int_t "param1", int_t "param2")
     {
         impl = function(self, param1, param2)
-            print(param1, param2)
+            print("MyFunction1", param1, param2)
             return { field1 = param1, field2 = tostring(param2) }
         end
     };
-    func (int) "MyFunction2"(SampleStructure "param1", str "param2");
-    func "MyFunction3"(int "param1");
-    func (str) "MyFunction4"();
+    func "MyFunction2": int_t(SampleStructure "param1", str_t "param2")
+    {
+        impl = function(self, param1, param2)
+            print("MyFunction2", param1, param2)
+            return param1.field1
+        end
+    };
+    func "MyFunction3": none_t(int_t "param1")
+    {
+        impl = function(self, param1)
+            print("MyFunction3", param1)
+        end
+    };
+    func "MyFunction4": str_t()
+    {
+        impl = function()
+            print("MyFunction4")
+            return "return string"
+        end
+    };
 }

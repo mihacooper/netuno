@@ -1,12 +1,21 @@
 require "helpers"
 require "dsl"
 
-int:SpecializeType('int', 0)
-str:SpecializeType('std::string', '')
-void:SpecializeType('void', nil)
-float:SpecializeType('float', 0)
-double:SpecializeType('double', 0)
-bool:SpecializeType('bool', false)
+int_t:specialize_type({ name = 'int'})
+str_t:specialize_type({ name = 'std::string'})
+none_t:specialize_type({ name = 'void'})
+float_t:specialize_type({ name = 'float'})
+double_t:specialize_type({ name = 'double'})
+bool_t:specialize_type({ name = 'bool'})
+struct:specialize_type(
+    {
+        new_type = function(ntype)
+            ntype.lang.name = ntype.name
+            ntype.lang.to_lua = ntype.name .. "::ToLuaObject"
+            ntype.lang.from_lua = ntype.name .. "::FromLuaObject"
+        end,
+    }
+)
 
 local generator =
 {
@@ -40,7 +49,7 @@ local structureHeaderTemplate =
 struct {*name*}
 {
 {%for _, field  in pairs(fields) do%}
-    {*field.paramType*} {*field.paramName*};
+    {*field.type.lang.name*} {*field.name*};
 {%end%}
 
     static sol::object ToLuaObject(sol::state_view state, {*name*} str);
@@ -57,7 +66,7 @@ sol::object {*name*}::ToLuaObject(sol::state_view state, {*name*} str)
 {
     return state.create_table_with(
 {%for i = 1, #fields do%}
-        "{*fields[i].paramName*}", str.{*fields[i].paramName*}{%if i ~= #fields then%},{%end%} 
+        "{*fields[i].name*}", str.{*fields[i].name*}{%if i ~= #fields then%},{%end%} 
 {%end%}
     );
 }
@@ -66,7 +75,7 @@ sol::object {*name*}::ToLuaObject(sol::state_view state, {*name*} str)
 {
     {*name*} str;
 {%for _, field  in pairs(fields) do%}
-    str.{*field.paramName*} = obj["{*field.paramName*}"];
+    str.{*field.name*} = obj["{*field.name*}"];
 {%end%}
     return str;
 }
@@ -105,7 +114,7 @@ public:
     {*interface*}();
     virtual ~{*interface*}();
 {%for _, func  in pairs(functions) do%}
-    virtual {*func.output.paramType*} {*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%});
+    virtual {*func.output.lang.name*} {*func.name*}({%for i = 1, #func.input do%}{*func.input[i].type.lang.name*} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%});
 {%end%}
 
 private:
@@ -139,11 +148,11 @@ local clientSourceTemplate =
 {}
 
 {%for _, func  in pairs(functions) do%}
-{*func.output.paramType*} {*interface*}::{*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%})
+{*func.output.lang.name*} {*interface*}::{*func.name*}({%for i = 1, #func.input do%}{*func.input[i].type.lang.name*} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%})
 {
-    sol::function func = m_interface["{*func.funcName*}"];
+    sol::function func = m_interface["{*func.name*}"];
     CHECK(func.valid(), "Unable to get Lua function object");
-{-raw-}    {-raw-}{%if func.has_return then%}{-raw-}return {-raw-}{%if func.output.fromLua then%}{*func.output.fromLua*}{%end%}{%end%}(func(m_interface{%for i = 1, #func.input do%}, {%if func.input[i].toLua then%}{*func.input[i].toLua*}(m_luaState,{%else%}({%end%}{*func.input[i].paramName*}){%end%}));
+{-raw-}    {-raw-}{%if func.has_return then%}{-raw-}return {-raw-}{%if func.output.lang.from_lua then%}{*func.output.lang.from_lua*}{%end%}{%end%}(func(m_interface{%for i = 1, #func.input do%}, {%if func.input[i].type.lang.to_lua then%}{*func.input[i].type.lang.to_lua*}(m_luaState,{%else%}({%end%}{*func.input[i].name*}){%end%}));
 }
 
 {%end%}
@@ -156,7 +165,7 @@ end
 
 function generator:GenerateClientSource(moduleName)
     for _, func in pairs(self.functions) do
-        if func.output and func.output.paramType ~= void.paramType then
+        if func.output and func.output ~= none_t then
             func.has_return = true
         end
     end
@@ -188,7 +197,7 @@ public:
     {*interface*}();
     virtual ~{*interface*}();
 {%for _, func  in pairs(functions) do%}
-    virtual {*func.output.paramType*} {*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%});
+    virtual {*func.type.output.paramType*} {*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%});
 {%end%}
 
 private:
@@ -233,10 +242,10 @@ local serverSourceTemplate =
  *****************************************/
 
 {%for _, func  in pairs(functions) do%}
-{*func.output.paramType*} {*interface*}::{*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%})
+{*func.type.output.paramType*} {*interface*}::{*func.funcName*}({%for i = 1, #func.input do%}{*func.input[i].paramType*} {*func.input[i].paramName*}{%if i ~= #func.input then%}, {%end%} {%end%})
 {%if func.has_return then%}
 {
-    return {*func.output.paramType*}();
+    return {*func.type.output.paramType*}();
 }
 {%else%}
 {}
@@ -252,7 +261,7 @@ end
 
 function generator:GenerateServerSource(moduleName)
     for _, func in pairs(self.functions) do
-        if func.output ~= void.paramType then
+        if func.type.output ~= void.paramType then
             func.has_return = true
         end
     end

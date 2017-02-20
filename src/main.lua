@@ -40,10 +40,10 @@ require "dsl"
 generator = require("lang-" .. outputLang .. ".binding")
 
 dofile(moduleName)
-local interface = GetInterface(interfaceName)
+local interface = _G[interfaceName]
 generator:SetInterfaceName(interfaceName)
 
-for _, func in pairs(interface) do
+for _, func in pairs(interface.functions) do
     generator:AddFunction(func)
 end
 

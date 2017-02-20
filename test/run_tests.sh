@@ -75,7 +75,7 @@ for test_suite in $(find . -name "*_test" -type d  -printf "%f\n"); do
             SUITE_HAS_ERROR=true
             testf_err "[  FAILED   ] $test_suite.$test_case"
         fi
-        rm -r $WORK_DIR/* 2>/dev/null
+        #rm -r $WORK_DIR/* 2>/dev/null
     done
     cd ..
     if $SUITE_HAS_ERROR; then
