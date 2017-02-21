@@ -10,20 +10,26 @@ HELP =
     type       - client or server source file. \
 "
 
-local module_name = arg[1]
+local module_path = arg[1]
 local class_Name  = arg[2]
 local language    = arg[3]
 local target      = arg[4]
 
 local loader = require "loader"
-local ret, generator = loader(module_name, class_Name, language, target)
+local ret, generator = loader(module_path, class_Name, language, target)
 if not ret then
     print(generator) -- it's error message
     print(HELP)
     os.exit(1)
 end
 
-local ret, msg = pcall(generator, _G[class_Name], { module_name = module_name })
+local module_name = string.gsub(module_path, ".*[/\\](%w-).lua", "%1")
+if type(module_name) ~= "string" then
+    print("Unable to get module name")
+    os.exit(1)
+end
+
+local ret, msg = pcall(generator, _G[class_Name], { module_name = module_name, module_path = module_path })
 if not ret then
     print(msg)
     os.exit(1)

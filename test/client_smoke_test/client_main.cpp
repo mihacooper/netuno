@@ -1,6 +1,5 @@
 #include <iostream>
-#include "SampleInterface.h"
-#include "SampleStructure.h"
+#include "sample.hpp"
 
 bool operator ==(const SampleStructure& left, const SampleStructure& right)
 {

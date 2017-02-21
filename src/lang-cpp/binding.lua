@@ -11,35 +11,47 @@ struct:specialize_type(
     {
         new_type = function(ntype)
             ntype.lang.name = ntype.name
-            ntype.lang.to_lua = ntype.name .. "::ToLuaObject"
-            ntype.lang.from_lua = ntype.name .. "::FromLuaObject"
+            ntype.lang.to_lua = ntype.name .. "ToLuaObject"
+            ntype.lang.from_lua = ntype.name .. "FromLuaObject"
         end,
     }
 )
 
-local structure_header_template = 
+local client_header_base =
 [[
 #pragma once
 #include "lua.hpp"
 #include "lang-cpp/sol2/single/sol/sol.hpp"
 
+]]
+
+local client_source_base =
+[[
+#include <stdlib.h>
+#include "{*module_name*}.hpp"
+
+#define CHECK(x, msg) { \
+    if(!x) { printf("ERROR at %s:%d\n\t%s ", __FILE__, __LINE__, #x); \
+        throw std::runtime_error(msg);} }
+]]
+
+local server_header_base, server_source_base = client_header_base, client_source_base
+
+local structure_header_template =
+[[
 struct {*name*}
 {
 {%for _, field  in pairs(fields) do%}
     {*field.type.lang.name*} {*field.name*};
 {%end%}
-
-    static sol::object ToLuaObject(sol::state_view state, {*name*} str);
-    static {*name*} FromLuaObject(const sol::stack_table& obj);
 };
+
 ]]
 
-local structure_source_template = 
+local structure_source_template =
 [[
-#include <stdlib.h>
-#include "{*name*}.h"
 
-sol::object {*name*}::ToLuaObject(sol::state_view state, {*name*} str)
+static sol::object {*name*}ToLuaObject(sol::state_view state, {*name*} str)
 {
     return state.create_table_with(
 {%for i = 1, #fields do%}
@@ -48,7 +60,7 @@ sol::object {*name*}::ToLuaObject(sol::state_view state, {*name*} str)
     );
 }
 
-{*name*} {*name*}::FromLuaObject(const sol::stack_table& obj)
+static {*name*} {*name*}FromLuaObject(const sol::stack_table& obj)
 {
     {*name*} str;
 {%for _, field  in pairs(fields) do%}
@@ -56,17 +68,11 @@ sol::object {*name*}::ToLuaObject(sol::state_view state, {*name*} str)
 {%end%}
     return str;
 }
+
 ]]
 
 local client_header_template =
 [[
-#pragma once
-#include "lang-cpp/sol2/single/sol/sol.hpp"
-{%for _, str  in pairs(structures) do%}
-#include "{*str.name*}.h"
-{%end%}
-#include "lua.hpp"
-
 class {*interface*}
 {
 public:
@@ -80,16 +86,11 @@ private:
     sol::state m_luaState;
     sol::table m_interface;
 };
+
 ]]
 
 local client_source_template =
 [[
-#include "{*interface*}.h"
-
-#define CHECK(x, msg) { \
-    if(!x) { printf("ERROR at %s:%d\n\t%s ", __FILE__, __LINE__, #x); \
-        throw std::runtime_error(msg);} }
-
 {*interface*}::{*interface*}()
 {
     m_luaState.open_libraries();
@@ -99,7 +100,7 @@ local client_source_template =
     m_luaState.script("package.path = package.path .. ';' .. '" + sdkPath + "' .. '/?.lua'");
     sol::function loadInterfaceFunc = m_luaState.script_file(pathToLoader);
     CHECK(loadInterfaceFunc.valid(), "Unable to load loader");
-    loadInterfaceFunc("{*module_name*}", "{*interface*}", "cpp", "client");
+    loadInterfaceFunc("{*module_path*}", "{*interface*}", "cpp", "client");
     m_interface = m_luaState["{*interface*}"];
     CHECK(m_interface.valid(), "Unable to get Lua interface");
 }
@@ -120,11 +121,6 @@ local client_source_template =
 
 local serverHeaderTemplate =
 [[
-#include "lang-cpp/sol2/single/sol/sol.hpp"
-{%for _, str  in pairs(structures) do%}
-#include "{*str.name*}.h"
-{%end%}
-
 class {*interface*}
 {
 public:
@@ -137,16 +133,11 @@ public:
 private:
     sol::state m_luaState;
 };
+
 ]]
 
 local serverSourceTemplate =
 [[
-#include "{*interface*}.h"
-
-#define CHECK(x, msg) { \
-    if(!x) { printf("ERROR at %s:%d\n\t%s ", __FILE__, __LINE__, #x); \
-        throw std::runtime_error(msg);} }
-
 {*interface*}::{*interface*}()
 {
     m_luaState.open_libraries();
@@ -157,7 +148,7 @@ local serverSourceTemplate =
 
     sol::function loadInterfaceFunc = m_luaState.script_file(pathToLoader);
     CHECK(loadInterfaceFunc.valid(), "Unable to load loader");
-    loadInterfaceFunc("{*module_name*}", "{*interface*}", "cpp", "client");
+    loadInterfaceFunc("{*module_path*}", "{*interface*}", "cpp", "client");
 
     sol::usertype<{*interface*}> type("new", sol::no_constructor,
 {%for i = 1, #functions do%}
@@ -187,30 +178,37 @@ local serverSourceTemplate =
 {%end%}
 
 {%end%}
+
 ]]
 
 return function(interface, props)
     local structs = GetStructures()
+    --local interfaces = GetInterfaces()
+    local head_body, src_body = "", ""
+
+    if target == "client" then
+        head_body = client_header_base
+        src_body = src_body .. generate(client_source_base, { module_name = props.module_name })
+    elseif target == "server" then
+        head_body = server_header_base
+        src_body = src_body .. generate(server_source_base, { module_name = props.module_name })
+    end
+
     for _, str in pairs(structs) do
-        local head_body = generate(structure_header_template, str)
-        write_to_file(str.name .. ".h", head_body)
-        local src_body = generate(structure_source_template, str)
-        write_to_file(str.name .. ".cpp", src_body)
+        head_body = head_body .. generate(structure_header_template, str)
+        src_body = src_body .. generate(structure_source_template, str)
     end
     if target == "client" then
-        local head_body = generate(client_header_template, { structures = structs, interface = interface.name,
+        head_body = head_body .. generate(client_header_template, { structures = structs, interface = interface.name,
                 functions = interface.functions})
-        write_to_file(interface.name .. ".h", head_body)
 
-        local src_body = generate(client_source_template, { module_name = props.module_name, interface = interface.name,
+        src_body = src_body .. generate(client_source_template, { module_path = props.module_path, interface = interface.name,
                 functions = interface.functions, none_t = none_t})
-        write_to_file(interface.name .. ".cpp", src_body)
     elseif target == "server" then
-        local head_body = generate(serverHeaderTemplate, { structures = structs, interface = interface.name, functions = interface.functions})
-        write_to_file(interface.name .. ".h", head_body)
-
-        local src_body = generate(serverSourceTemplate, { module_name = props.module_name, interface = interface.name,
+        head_body = head_body .. generate(serverHeaderTemplate, { structures = structs, interface = interface.name, functions = interface.functions})
+        src_body = src_body .. generate(serverSourceTemplate, { module_path = props.module_path, interface = interface.name,
                 functions = interface.functions, none_t = none_t})
-        write_to_file(interface.name .. ".cpp", src_body)
    end
+    write_to_file(props.module_name .. ".cpp", src_body)
+    write_to_file(props.module_name .. ".hpp", head_body)
 end
