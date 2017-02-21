@@ -17,158 +17,216 @@ struct:specialize_type(
     }
 )
 
-local client_header_base =
+local client_header_template =
 [[
 #pragma once
 #include "lua.hpp"
 #include "lang-cpp/sol2/single/sol/sol.hpp"
 
-]]
-
-local client_source_base =
-[[
-#include <stdlib.h>
-#include "{*module_name*}.hpp"
-
-#define CHECK(x, msg) { \
-    if(!x) { printf("ERROR at %s:%d\n\t%s ", __FILE__, __LINE__, #x); \
-        throw std::runtime_error(msg);} }
-]]
-
-local server_header_base, server_source_base = client_header_base, client_source_base
-
-local structure_header_template =
-[[
-struct {*name*}
+namespace rpc_sdk
 {
-{%for _, field  in pairs(fields) do%}
+
+void InitializeSdk(const std::string& pathToModule = "");
+
+{%for _, str  in pairs(structs) do%}
+struct {*str.name*}
+{
+{%for _, field  in pairs(str.fields) do%}
     {*field.type.lang.name*} {*field.name*};
 {%end%}
 };
 
+{%end%}
+
+{%for _, interface  in pairs(interfaces) do%}
+class {*interface.name*}
+{
+public:
+    {*interface.name*}();
+    virtual ~{*interface.name*}();
+{%for _, func  in ipairs(interface.functions) do%}
+    virtual {*func.output.lang.name*} {*func.name*}({%for i = 1, #func.input do%}{*func.input[i].type.lang.name*} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%});
+{%end%}
+
+private:
+    sol::table m_interface;
+};
+
+{%end%}
+
+} // rpc_sdk
 ]]
 
-local structure_source_template =
+local client_source_template =
 [[
+#include "{*module_name*}.hpp"
 
-static sol::object {*name*}ToLuaObject(sol::state_view state, {*name*} str)
+#include <stdlib.h>
+#include <memory>
+
+namespace rpc_sdk
+{
+
+#define CHECK(x, msg) { \
+    if(!(x)) { printf("ERROR at %s:%d\n\t%s ", __FILE__, __LINE__, #x); \
+        throw std::runtime_error(msg);} }
+
+std::shared_ptr<sol::state> g_luaState;
+
+void InitializeSdk(const std::string& pathToModule)
+{
+    g_luaState = std::make_shared<sol::state>();
+    CHECK(g_luaState.get() != nullptr, "Unable to create lus state");
+    g_luaState->open_libraries();
+
+    const char* cPath = getenv("LUA_RPC_SDK");
+    const std::string sdkPath = cPath ? cPath : ".";
+    const std::string pathToLoader = sdkPath + std::string("/loader.lua");
+    g_luaState->script("package.path = package.path .. ';' .. '" + sdkPath + "' .. '/?.lua'");
+    sol::function loadInterfaceFunc = g_luaState->script_file(pathToLoader);
+    CHECK(loadInterfaceFunc.valid(), "Unable to load loader");
+
+    loadInterfaceFunc(pathToModule.empty() ? "{*module_path*}" : pathToModule, "cpp", "client");
+}
+
+{%for _, str  in pairs(structs) do%}
+static sol::object {*str.name*}ToLuaObject(sol::state_view state, {*str.name*} str)
 {
     return state.create_table_with(
-{%for i = 1, #fields do%}
-        "{*fields[i].name*}", str.{*fields[i].name*}{%if i ~= #fields then%},{%end%} 
+{%for i = 1, #str.fields do%}
+        "{*str.fields[i].name*}", str.{*str.fields[i].name*}{%if i ~= #str.fields then%},{%end%} 
 {%end%}
     );
 }
 
-static {*name*} {*name*}FromLuaObject(const sol::stack_table& obj)
+static {*str.name*} {*str.name*}FromLuaObject(const sol::stack_table& obj)
 {
-    {*name*} str;
-{%for _, field  in pairs(fields) do%}
+    {*str.name*} str;
+{%for _, field  in pairs(str.fields) do%}
     str.{*field.name*} = obj["{*field.name*}"];
 {%end%}
     return str;
 }
 
-]]
-
-local client_header_template =
-[[
-class {*interface*}
-{
-public:
-    {*interface*}();
-    virtual ~{*interface*}();
-{%for _, func  in ipairs(functions) do%}
-    virtual {*func.output.lang.name*} {*func.name*}({%for i = 1, #func.input do%}{*func.input[i].type.lang.name*} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%});
 {%end%}
 
-private:
-    sol::state m_luaState;
-    sol::table m_interface;
-};
-
-]]
-
-local client_source_template =
-[[
-{*interface*}::{*interface*}()
+{%for _, interface  in pairs(interfaces) do%}
+{*interface.name*}::{*interface.name*}()
 {
-    m_luaState.open_libraries();
-    const char* cPath = getenv("LUA_RPC_SDK");
-    const std::string sdkPath = cPath ? cPath : ".";
-    const std::string pathToLoader = sdkPath + std::string("/loader.lua");
-    m_luaState.script("package.path = package.path .. ';' .. '" + sdkPath + "' .. '/?.lua'");
-    sol::function loadInterfaceFunc = m_luaState.script_file(pathToLoader);
-    CHECK(loadInterfaceFunc.valid(), "Unable to load loader");
-    loadInterfaceFunc("{*module_path*}", "{*interface*}", "cpp", "client");
-    m_interface = m_luaState["{*interface*}"];
+    m_interface = (*g_luaState)["{*interface.name*}"];
     CHECK(m_interface.valid(), "Unable to get Lua interface");
 }
 
-{*interface*}::~{*interface*}()
+{*interface.name*}::~{*interface.name*}()
 {}
 
-{%for _, func  in ipairs(functions) do%}
-{*func.output.lang.name*} {*interface*}::{*func.name*}({%for i = 1, #func.input do%}{*func.input[i].type.lang.name*} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%})
+{%for _, func  in ipairs(interface.functions) do%}
+{*func.output.lang.name*} {*interface.name*}::{*func.name*}({%for i = 1, #func.input do%}{*func.input[i].type.lang.name*} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%})
 {
     sol::function func = m_interface["functions"]["{*func.name*}"]["impl"];
     CHECK(func.valid(), "Unable to get Lua function object");
-{-raw-}    {-raw-}{%if func.output ~= none_t then%}{-raw-}return {-raw-}{%if func.output.lang.from_lua then%}{*func.output.lang.from_lua*}{%end%}{%end%}(func(m_interface{%for i = 1, #func.input do%}, {%if func.input[i].type.lang.to_lua then%}{*func.input[i].type.lang.to_lua*}(m_luaState,{%else%}({%end%}{*func.input[i].name*}){%end%}));
+{-raw-}    {-raw-}{%if func.output ~= none_t then%}{-raw-}return {-raw-}{%if func.output.lang.from_lua then%}{*func.output.lang.from_lua*}{%end%}{%end%}(func(m_interface{%for i = 1, #func.input do%}, {%if func.input[i].type.lang.to_lua then%}{*func.input[i].type.lang.to_lua*}(*g_luaState, {%else%}({%end%}{*func.input[i].name*}){%end%}));
 }
 
 {%end%}
-]]
-
-local serverHeaderTemplate =
-[[
-class {*interface*}
-{
-public:
-    {*interface*}();
-    virtual ~{*interface*}();
-{%for _, func  in ipairs(functions) do%}
-    virtual {*func.output.lang.name*} {*func.name*}({%for i = 1, #func.input do%}{*func.input[i].type.lang.name*} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%});
 {%end%}
 
-private:
-    sol::state m_luaState;
-};
+#undef CHECK
 
+} // rpc_sdk
 ]]
 
-local serverSourceTemplate =
+local server_header_template =
 [[
-{*interface*}::{*interface*}()
+#pragma once
+#include "lua.hpp"
+#include "lang-cpp/sol2/single/sol/sol.hpp"
+
+namespace rpc_sdk
 {
-    m_luaState.open_libraries();
+
+void InitializeSdk(const std::string& pathToModule = "");
+
+{%for _, str  in pairs(structs) do%}
+struct {*str.name*}
+{
+{%for _, field  in pairs(str.fields) do%}
+    {*field.type.lang.name*} {*field.name*};
+{%end%}
+};
+
+{%end%}
+
+{%for _, interface  in pairs(interfaces) do%}
+class {*interface.name*}
+{
+public:
+    {*interface.name*}();
+    virtual ~{*interface.name*}();
+{%for _, func  in ipairs(interface.functions) do%}
+    virtual {*func.output.lang.name*} {*func.name*}({%for i = 1, #func.input do%}{*func.input[i].type.lang.name*} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%});
+{%end%}
+};
+
+{%end%}
+
+} // rpc_sdk
+]]
+
+local server_source_template =
+[[
+#include "{*module_name*}.hpp"
+
+#include <stdlib.h>
+#include <memory>
+
+namespace rpc_sdk
+{
+
+#define CHECK(x, msg) { \
+    if(!(x)) { printf("ERROR at %s:%d\n\t%s ", __FILE__, __LINE__, #x); \
+        throw std::runtime_error(msg);} }
+
+std::shared_ptr<sol::state> g_luaState;
+
+void InitializeSdk(const std::string& pathToModule)
+{
+    g_luaState = std::make_shared<sol::state>();
+    CHECK(g_luaState.get() != nullptr, "Unable to create lus state");
+    g_luaState->open_libraries();
+
     const char* cPath = getenv("LUA_RPC_SDK");
     const std::string sdkPath = cPath ? cPath : ".";
     const std::string pathToLoader = sdkPath + std::string("/loader.lua");
-    m_luaState.script("package.path = package.path .. ';' .. '" + sdkPath + "' .. '/?.lua'");
-
-    sol::function loadInterfaceFunc = m_luaState.script_file(pathToLoader);
+    g_luaState->script("package.path = package.path .. ';' .. '" + sdkPath + "' .. '/?.lua'");
+    sol::function loadInterfaceFunc = g_luaState->script_file(pathToLoader);
     CHECK(loadInterfaceFunc.valid(), "Unable to load loader");
-    loadInterfaceFunc("{*module_path*}", "{*interface*}", "cpp", "client");
+    loadInterfaceFunc(pathToModule.empty() ? "{*module_path*}" : pathToModule, "cpp", "server");
 
-    sol::usertype<{*interface*}> type("new", sol::no_constructor,
-{%for i = 1, #functions do%}
-        "{*functions[i].name*}", &{*interface*}::{*functions[i].name*}{%if i ~= #functions then%},{%end%} 
+{%for _, interface  in pairs(interfaces) do%}
+    sol::usertype<{*interface.name*}> type(
+{%for i = 1, #interface.functions do%}
+        "{*interface.functions[i].name*}", &{*interface.name*}::{*interface.functions[i].name*}{%if i ~= #interface.functions then%},{%end%} 
 {%end%}
     );
-    sol::stack::push(m_luaState, type);
-    sol::stack::pop<sol::object>(m_luaState);
-    m_luaState["{*interface*}"]["server"] = this;
+    sol::stack::push(*g_luaState, type);
+    (*g_luaState)["{*interface.name*}"]["server"] = sol::stack::pop<sol::object>(*g_luaState);
+{%end%}
 }
 
-{*interface*}::~{*interface*}()
+{%for _, interface  in pairs(interfaces) do%}
+{*interface.name*}::{*interface.name*}()
+{}
+
+{*interface.name*}::~{*interface.name*}()
 {}
 
 /*****************************************
  ***** PUT YOUR IMPLEMENTATION BELOW *****
  *****************************************/
 
-{%for _, func  in ipairs(functions) do%}
-{*func.output.lang.name*} {*interface*}::{*func.name*}({%for i = 1, #func.input do%}{*func.input[i].type.lang.name*} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%})
+{%for _, func  in ipairs(interface.functions) do%}
+{*func.output.lang.name*} {*interface.name*}::{*func.name*}({%for i = 1, #func.input do%}{*func.input[i].type.lang.name*} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%})
 {%if func.output ~= none_t then%}
 {
     return {*func.output.lang.name*}();
@@ -178,37 +236,41 @@ local serverSourceTemplate =
 {%end%}
 
 {%end%}
+{%end%}
 
+} // rpc_sdk
 ]]
 
-return function(interface, props)
+return function(props)
     local structs = GetStructures()
-    --local interfaces = GetInterfaces()
-    local head_body, src_body = "", ""
+    local interfaces = GetInterfaces()
 
-    if target == "client" then
-        head_body = client_header_base
-        src_body = src_body .. generate(client_source_base, { module_name = props.module_name })
-    elseif target == "server" then
-        head_body = server_header_base
-        src_body = src_body .. generate(server_source_base, { module_name = props.module_name })
-    end
+    local header_template =
+            target == "client" and client_header_template or
+            target == "server" and server_header_template or
+            error("Invalid terget")
+    local source_template =
+            target == "client" and client_source_template or
+            target == "server" and server_source_template or
+            error("Invalid terget")
 
-    for _, str in pairs(structs) do
-        head_body = head_body .. generate(structure_header_template, str)
-        src_body = src_body .. generate(structure_source_template, str)
-    end
-    if target == "client" then
-        head_body = head_body .. generate(client_header_template, { structures = structs, interface = interface.name,
-                functions = interface.functions})
+    local head_body = generate(header_template,
+        {
+            module_name = props.module_name,
+            module_path = props.module_path,
+            structs = structs,
+            interfaces = interfaces,
+        }
+    )
+    local src_body = generate(source_template,
+            {
+                module_name = props.module_name,
+                module_path = props.module_path,
+                structs = structs,
+                interfaces = interfaces,
+            }
+    )
 
-        src_body = src_body .. generate(client_source_template, { module_path = props.module_path, interface = interface.name,
-                functions = interface.functions, none_t = none_t})
-    elseif target == "server" then
-        head_body = head_body .. generate(serverHeaderTemplate, { structures = structs, interface = interface.name, functions = interface.functions})
-        src_body = src_body .. generate(serverSourceTemplate, { module_path = props.module_path, interface = interface.name,
-                functions = interface.functions, none_t = none_t})
-   end
     write_to_file(props.module_name .. ".cpp", src_body)
     write_to_file(props.module_name .. ".hpp", head_body)
 end

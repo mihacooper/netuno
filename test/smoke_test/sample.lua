@@ -13,6 +13,7 @@ class "SampleInterface"
             return { field1 = param1, field2 = tostring(param2) }
         end
     };
+
     func "MyFunction2": int_t(SampleStructure "param1", str_t "param2")
     {
         impl = function(self, param1, param2)
@@ -20,6 +21,7 @@ class "SampleInterface"
             return param1.field1
         end
     };
+
     func "MyFunction3": none_t(int_t "param1")
     {
         impl = function(self, param1)

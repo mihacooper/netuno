@@ -69,6 +69,7 @@ function new_metatype(creator)
     return t
 end
 
+local interfaces = {}
 class = new_metatype(
     function(self)
         setmetatable(self,
@@ -76,17 +77,20 @@ class = new_metatype(
                 __call = function(cl, body)
                     cl.functions = {}
                     for k,v in ipairs(body) do
-                        cl.functions[v.name] = v
-                        cl.functions[k] = v
+                        if type(v) == "table" and v.type and v.type == func then
+                            cl.functions[v.name] = v
+                            table.insert(cl.functions, v)
+                        end
                     end
                     cl:finalize_type()
+                    table.insert(interfaces, _G[cl.name])
                 end
             }
         )
     end
 )
 
-structures = {}
+local structures = {}
 struct = new_metatype(
     function(self)
         setmetatable(self,
@@ -145,4 +149,8 @@ bool_t   = new_type()
 
 function GetStructures()
     return structures
+end
+
+function GetInterfaces()
+    return interfaces
 end

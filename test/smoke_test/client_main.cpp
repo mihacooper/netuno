@@ -1,6 +1,8 @@
 #include <iostream>
 #include "sample.hpp"
 
+using namespace rpc_sdk;
+
 bool operator ==(const SampleStructure& left, const SampleStructure& right)
 {
     return left.field1 == right.field1 && left.field2 == right.field2;
@@ -25,6 +27,7 @@ int return_code = 0;
 
 int main()
 {
+    InitializeSdk();
     SampleInterface interface;
     SampleStructure str{76, "oprst"};
 

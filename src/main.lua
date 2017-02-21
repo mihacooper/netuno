@@ -11,12 +11,11 @@ HELP =
 "
 
 local module_path = arg[1]
-local class_Name  = arg[2]
-local language    = arg[3]
-local target      = arg[4]
+local language    = arg[2]
+local target      = arg[3]
 
 local loader = require "loader"
-local ret, generator = loader(module_path, class_Name, language, target)
+local ret, generator = loader(module_path, language, target)
 if not ret then
     print(generator) -- it's error message
     print(HELP)
@@ -29,7 +28,7 @@ if type(module_name) ~= "string" then
     os.exit(1)
 end
 
-local ret, msg = pcall(generator, _G[class_Name], { module_name = module_name, module_path = module_path })
+local ret, msg = pcall(generator, { module_name = module_name, module_path = module_path })
 if not ret then
     print(msg)
     os.exit(1)

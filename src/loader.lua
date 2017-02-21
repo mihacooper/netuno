@@ -2,7 +2,7 @@ require "os"
 require "string"
 require "helpers"
 
-return function(module_name, class_name, language, target)
+return function(module_name, language, target)
     local root_dir = os.getenv("LUA_RPC_SDK") or "."
     _G.target = target
 
