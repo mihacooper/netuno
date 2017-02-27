@@ -21,7 +21,7 @@ local client_header_template =
 [[
 #pragma once
 #include "lua.hpp"
-#include "lang-cpp/sol2/single/sol/sol.hpp"
+#include "externals/sol2/sol.hpp"
 
 namespace rpc_sdk
 {
@@ -140,7 +140,7 @@ local server_header_template =
 [[
 #pragma once
 #include "lua.hpp"
-#include "lang-cpp/sol2/single/sol/sol.hpp"
+#include "externals/sol2/sol.hpp"
 
 namespace rpc_sdk
 {
@@ -162,9 +162,9 @@ class {*interface.name*}
 {
 public:
     {*interface.name*}();
-    virtual ~{*interface.name*}();
+    ~{*interface.name*}();
 {%for _, func  in ipairs(interface.functions) do%}
-    virtual {*func.output.lang.name*} {*func.name*}({%for i = 1, #func.input do%}{*func.input[i].type.lang.name*} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%});
+    {*func.output.lang.name*} {*func.name*}({%for i = 1, #func.input do%}{*func.input[i].type.lang.name*} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%});
 {%end%}
 };
 
@@ -213,30 +213,6 @@ void InitializeSdk(const std::string& pathToModule)
     (*g_luaState)["{*interface.name*}"]["server"] = sol::stack::pop<sol::object>(*g_luaState);
 {%end%}
 }
-
-{%for _, interface  in pairs(interfaces) do%}
-{*interface.name*}::{*interface.name*}()
-{}
-
-{*interface.name*}::~{*interface.name*}()
-{}
-
-/*****************************************
- ***** PUT YOUR IMPLEMENTATION BELOW *****
- *****************************************/
-
-{%for _, func  in ipairs(interface.functions) do%}
-{*func.output.lang.name*} {*interface.name*}::{*func.name*}({%for i = 1, #func.input do%}{*func.input[i].type.lang.name*} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%})
-{%if func.output ~= none_t then%}
-{
-    return {*func.output.lang.name*}();
-}
-{%else%}
-{}
-{%end%}
-
-{%end%}
-{%end%}
 
 } // rpc_sdk
 ]]

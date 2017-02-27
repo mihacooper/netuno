@@ -3,7 +3,7 @@
 cd $WORK_DIR
 cp $TEST_DIR/sample.lua .
 
-$SDK_DIR/main.lua $TEST_DIR/sample.lua cpp client
+lua $SDK_DIR/rpc.lua $TEST_DIR/sample.lua cpp client
 testf_assert [ -f "sample.cpp" ]
 testf_assert [ -f "sample.hpp"   ]
 

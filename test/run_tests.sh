@@ -7,12 +7,18 @@ fi
 
 export ROOT_DIR="$(cd $(dirname $0); pwd)"
 export WORK_DIR="$ROOT_DIR/work_dir"
-export SDK_DIR="$ROOT_DIR/../src"
+export SDK_DIR="$WORK_DIR/sdk"
 export LUA_RPC_SDK=$SDK_DIR
 
 if ! [ -d $WORK_DIR ]; then
     mkdir $WORK_DIR
 fi
+
+if ! [ -d $SDK_DIR ]; then
+    mkdir $SDK_DIR
+fi
+
+sh $ROOT_DIR/../install.sh $SDK_DIR
 
 export CLR_RED='\033[0;31m'
 export CLR_GREEN='\033[0;32m'

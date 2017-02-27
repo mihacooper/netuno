@@ -5,7 +5,7 @@
 cd $WORK_DIR
 cp $TEST_DIR/sample.lua .
 
-$SDK_DIR/main.lua $TEST_DIR/sample.lua cpp server
+lua $SDK_DIR/rpc.lua $TEST_DIR/sample.lua cpp server
 testf_assert [ -f "sample.cpp" ]
 testf_assert [ -f "sample.hpp"   ]
 

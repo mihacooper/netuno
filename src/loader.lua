@@ -15,11 +15,10 @@ return function(module_name, language, target)
     end
 
     require "dsl"
-    if language == nil or io.open(root_dir .. "/lang-" .. language .. "/binding.lua", "r") == nil then
+    local err, generator = pcall(require,  "lang-" .. language .. ".binding")
+    if language == nil or not err then
         return false, "Invalid language: " .. language
     end
-
-    generator = require("lang-" .. language .. ".binding")
 
     local ret, err = pcall(dofile, module_name)
     if not ret then

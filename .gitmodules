@@ -4,3 +4,9 @@
 [submodule "src/lang-cpp/sol2"]
 	path = src/lang-cpp/sol2
 	url = https://github.com/ThePhD/sol2.git
+[submodule "externals/luasocket"]
+	path = externals/luasocket
+	url = http://github.com/diegonehab/luasocket
+[submodule "externals/luacc"]
+	path = externals/luacc
+	url = http://github.com/mihacooper/luacc
