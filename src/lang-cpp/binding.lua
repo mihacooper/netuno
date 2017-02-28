@@ -113,7 +113,7 @@ static {*str.name*} {*str.name*}FromLuaObject(const sol::stack_table& obj)
 {%for _, interface  in pairs(interfaces) do%}
 {*interface.name*}::{*interface.name*}()
 {
-    m_interface = (*g_luaState)["{*interface.name*}"];
+    m_interface = (*g_luaState)["{*interface.name*}"]();
     CHECK(m_interface.valid(), "Unable to get Lua interface");
 }
 
@@ -123,7 +123,7 @@ static {*str.name*} {*str.name*}FromLuaObject(const sol::stack_table& obj)
 {%for _, func  in ipairs(interface.functions) do%}
 {*func.output.lang.name*} {*interface.name*}::{*func.name*}({%for i = 1, #func.input do%}{*func.input[i].type.lang.name*} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%})
 {
-    sol::function func = m_interface["functions"]["{*func.name*}"]["impl"];
+    sol::function func = m_interface["{*func.name*}"];
     CHECK(func.valid(), "Unable to get Lua function object");
 {-raw-}    {-raw-}{%if func.output ~= none_t then%}{-raw-}return {-raw-}{%if func.output.lang.from_lua then%}{*func.output.lang.from_lua*}{%end%}{%end%}(func(m_interface{%for i = 1, #func.input do%}, {%if func.input[i].type.lang.to_lua then%}{*func.input[i].type.lang.to_lua*}(*g_luaState, {%else%}({%end%}{*func.input[i].name*}){%end%}));
 }
@@ -212,6 +212,8 @@ void InitializeSdk(const std::string& pathToModule)
     sol::stack::push(*g_luaState, type);
     (*g_luaState)["{*interface.name*}"]["server"] = sol::stack::pop<sol::object>(*g_luaState);
 {%end%}
+    sol::table server = (*g_luaState)["tcp"]["new_server"](9898);
+    server["run"](server);
 }
 
 } // rpc_sdk

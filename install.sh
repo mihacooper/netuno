@@ -32,19 +32,19 @@ cd $ROOT_DIR
 # 2. Bind sources
 lua $ROOT_DIR/externals/luacc/bin/luacc.lua \
     -o $DEST_DIR/loader.lua \
-    -i $ROOT_DIR -i $ROOT_DIR/src \
-    loader helpers dsl \
+    -i $ROOT_DIR -i $ROOT_DIR/src -i $WORK_DIR/socket/modules \
+    loader helpers dsl networking \
     template.lib.resty.template \
-    lang-cpp.binding
+    lang-cpp.binding \
+    socket
 
 # 3.
-cp -r $ROOT_DIR/src/main.lua $DEST_DIR/rpc.lua
+cp -r $ROOT_DIR/src/rpc.lua $DEST_DIR/
 mkdir $DEST_DIR/externals 2>/dev/null
 mkdir $DEST_DIR/externals/sol2 2>/dev/null
 cp -r $ROOT_DIR/src/lang-cpp/sol2/single/sol/sol.hpp $DEST_DIR/externals/sol2
 
 mkdir $DEST_DIR/externals/socket 2>/dev/null
-cp -r $WORK_DIR/socket/lib/* $DEST_DIR/externals/socket
-cp -r $WORK_DIR/socket/modules/* $DEST_DIR/externals/socket
+cp -r $WORK_DIR/socket/lib/socket/* $DEST_DIR/externals/socket
 
 #rm -rf $WORK_DIR
