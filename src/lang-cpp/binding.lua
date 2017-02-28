@@ -113,7 +113,9 @@ static {*str.name*} {*str.name*}FromLuaObject(const sol::stack_table& obj)
 {%for _, interface  in pairs(interfaces) do%}
 {*interface.name*}::{*interface.name*}()
 {
+    printf("New interface\n");
     m_interface = (*g_luaState)["{*interface.name*}"]();
+    printf("New interface created\n");
     CHECK(m_interface.valid(), "Unable to get Lua interface");
 }
 
@@ -212,8 +214,8 @@ void InitializeSdk(const std::string& pathToModule)
     sol::stack::push(*g_luaState, type);
     (*g_luaState)["{*interface.name*}"]["server"] = sol::stack::pop<sol::object>(*g_luaState);
 {%end%}
-    sol::table server = (*g_luaState)["tcp"]["new_server"](9898);
-    server["run"](server);
+    sol::function runner = (*g_luaState)["default_connector"]["run_server"];
+    runner(runner, 9898);
 }
 
 } // rpc_sdk

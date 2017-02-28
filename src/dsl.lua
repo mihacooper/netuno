@@ -84,9 +84,12 @@ class = new_metatype(
                 __call = function(cl, body)
                     local ret = cl:finalize_type()
                     ret.functions = {}
-                    for k,v in ipairs(body) do
-                        if type(v) == "table" and v.type and v.type == func then
+                    ret.flags = {}
+                    for k,v in pairs(body) do
+                        if type(k) == "number" and type(v) == "table" and v.type and v.type == func then
                             table.insert(ret.functions, v)
+                        else
+                            ret.flags[k] = v
                         end
                     end
                     table.insert(interfaces, ret)
@@ -96,8 +99,19 @@ class = new_metatype(
         )
     end,
     function(self)
+        for key, val in pairs(self.type.flags) do
+            self[key] = val
+        end
+        if target == "client" then
+            self.connection = default_connector:new_interface(self)
+        else
+            self.server = self.type.server.new()
+        end
         for _, func in ipairs(self.type.functions) do
             self[func.name] = func()
+            if target == "client" then
+                self[func.name].connection = self.connection
+            end
         end
     end
 )
@@ -159,8 +173,16 @@ func = new_metatype(
                     if f.type.impl then
                         return f.type.impl(...)
                     else
-                        print("Default impl:", ...)
-                        return f.type.output()
+                        if target == "client" then
+                            print("Default impl:", ...)
+                            if f.type.output == none_t then
+                                self.connection:send(...)
+                            else
+                                return self.connection:send_with_return(...)
+                            end
+                        else
+                            return self.server[f.type.name]()
+                        end
                     end
                 end
             }
