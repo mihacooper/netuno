@@ -10,3 +10,9 @@
 [submodule "externals/luacc"]
 	path = externals/luacc
 	url = http://github.com/mihacooper/luacc
+[submodule "src/effil"]
+	path = src/effil
+	url = https://github.com/loud-hound/effil
+[submodule "src/json"]
+	path = src/json
+	url = https://github.com/craigmj/json4lua

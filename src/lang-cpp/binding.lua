@@ -113,9 +113,7 @@ static {*str.name*} {*str.name*}FromLuaObject(const sol::stack_table& obj)
 {%for _, interface  in pairs(interfaces) do%}
 {*interface.name*}::{*interface.name*}()
 {
-    printf("New interface\n");
     m_interface = (*g_luaState)["{*interface.name*}"]();
-    printf("New interface created\n");
     CHECK(m_interface.valid(), "Unable to get Lua interface");
 }
 
@@ -127,7 +125,7 @@ static {*str.name*} {*str.name*}FromLuaObject(const sol::stack_table& obj)
 {
     sol::function func = m_interface["{*func.name*}"];
     CHECK(func.valid(), "Unable to get Lua function object");
-{-raw-}    {-raw-}{%if func.output ~= none_t then%}{-raw-}return {-raw-}{%if func.output.lang.from_lua then%}{*func.output.lang.from_lua*}{%end%}{%end%}(func(m_interface{%for i = 1, #func.input do%}, {%if func.input[i].type.lang.to_lua then%}{*func.input[i].type.lang.to_lua*}(*g_luaState, {%else%}({%end%}{*func.input[i].name*}){%end%}));
+{-raw-}    {-raw-}{%if func.output ~= none_t then%}{-raw-}return {-raw-}{%if func.output.lang.from_lua then%}{*func.output.lang.from_lua*}{%end%}{%end%}(func({%for i = 1, #func.input do%}{%if func.input[i].type.lang.to_lua then%}{*func.input[i].type.lang.to_lua*}(*g_luaState, {%else%}({%end%}{*func.input[i].name*}){%if i ~= #func.input then%},{%end%}{%end%}));
 }
 
 {%end%}
@@ -191,6 +189,40 @@ namespace rpc_sdk
 
 std::shared_ptr<sol::state> g_luaState;
 
+{%for _, str  in pairs(structs) do%}
+static sol::object {*str.name*}ToLuaObject(sol::state_view state, {*str.name*} str)
+{
+    return state.create_table_with(
+{%for i = 1, #str.fields do%}
+        "{*str.fields[i].name*}", str.{*str.fields[i].name*}{%if i ~= #str.fields then%},{%end%} 
+{%end%}
+    );
+}
+
+static {*str.name*} {*str.name*}FromLuaObject(const sol::stack_table& obj)
+{
+    {*str.name*} str;
+{%for _, field  in pairs(str.fields) do%}
+    str.{*field.name*} = obj["{*field.name*}"];
+{%end%}
+    return str;
+}
+{%end%}
+
+{%for _, interface  in pairs(interfaces) do%}
+class WrapperOf{*interface.name*} : public {*interface.name*}
+{
+public:
+{%for _, func  in ipairs(interface.functions) do%}
+{-raw-}    {-raw-}{%if func.output.lang.to_lua then%}sol::object{%else%}{*func.output.lang.name*}{%end%} WrapperOf{*func.name*}({%for i = 1, #func.input do%}{%if func.input[i].type.lang.from_lua then%}sol::stack_object{%else%}{*func.input[i].type.lang.name*}{%end%} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%})
+    {
+{-raw-}        {-raw-}{%if func.output ~= none_t then%}{-raw-}return {-raw-}{%if func.output.lang.to_lua then%}{*func.output.lang.to_lua*}(*g_luaState, {%else%}({%end%}{%else%}({%end%}{*interface.name*}::{*func.name*}({%for i = 1, #func.input do%}{%if func.input[i].type.lang.from_lua then%}{*func.input[i].type.lang.from_lua*}{%end%}({*func.input[i].name*}){%if i ~= #func.input then%},{%end%}{%end%}));
+    }
+
+{%end%}
+};
+{%end%}
+
 void InitializeSdk(const std::string& pathToModule)
 {
     g_luaState = std::make_shared<sol::state>();
@@ -206,9 +238,9 @@ void InitializeSdk(const std::string& pathToModule)
     loadInterfaceFunc(pathToModule.empty() ? "{*module_path*}" : pathToModule, "cpp", "server");
 
 {%for _, interface  in pairs(interfaces) do%}
-    sol::usertype<{*interface.name*}> type(
+    sol::usertype<WrapperOf{*interface.name*}> type(
 {%for i = 1, #interface.functions do%}
-        "{*interface.functions[i].name*}", &{*interface.name*}::{*interface.functions[i].name*}{%if i ~= #interface.functions then%},{%end%} 
+        "{*interface.functions[i].name*}", &WrapperOf{*interface.name*}::WrapperOf{*interface.functions[i].name*}{%if i ~= #interface.functions then%},{%end%}
 {%end%}
     );
     sol::stack::push(*g_luaState, type);

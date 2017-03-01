@@ -27,18 +27,27 @@ make install LUAV=5.2 \
     LDIR=modules \
     prefix=""
 
+# 2. Effil building
+mkdir $WORK_DIR/effil_build
+cd $WORK_DIR/effil_build
+cmake $ROOT_DIR/src/effil
+make -j4
+mkdir $DEST_DIR/externals/effil 2> /dev/null
+cp $WORK_DIR/effil_build/libeffil.so $DEST_DIR/externals/
+
+# 3. Bind sources
 cd $ROOT_DIR
 
-# 2. Bind sources
 lua $ROOT_DIR/externals/luacc/bin/luacc.lua \
     -o $DEST_DIR/loader.lua \
     -i $ROOT_DIR -i $ROOT_DIR/src -i $WORK_DIR/socket/modules \
+    -i $ROOT_DIR/src/json/json \
     loader helpers dsl networking \
     template.lib.resty.template \
     lang-cpp.binding \
-    socket
+    socket json
 
-# 3.
+# 4. Copy other resources
 cp -r $ROOT_DIR/src/rpc.lua $DEST_DIR/
 mkdir $DEST_DIR/externals 2>/dev/null
 mkdir $DEST_DIR/externals/sol2 2>/dev/null

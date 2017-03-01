@@ -1,5 +1,6 @@
 require "helpers"
 require "networking"
+json = require "json"
 
 local function CheckName(name)
     first, last = string.find(name, '[%a|_][%a|_|%d]+')
@@ -109,9 +110,7 @@ class = new_metatype(
         end
         for _, func in ipairs(self.type.functions) do
             self[func.name] = func()
-            if target == "client" then
-                self[func.name].connection = self.connection
-            end
+            self[func.name].parent = self
         end
     end
 )
@@ -170,18 +169,17 @@ func = new_metatype(
         setmetatable(self,
             {
                 __call = function(f, ...)
+                    local args = {...}
                     if f.type.impl then
-                        return f.type.impl(...)
+                        return f.type.impl(unpack(args))
                     else
                         if target == "client" then
-                            print("Default impl:", ...)
-                            if f.type.output == none_t then
-                                self.connection:send(...)
-                            else
-                                return self.connection:send_with_return(...)
-                            end
+                            local ret = f.parent.connection:send_with_return(
+                                { func_name = f.type.name, args = args }
+                            )
+                            return ret
                         else
-                            return self.server[f.type.name]()
+                            return f.parent.server[f.type.name](f.parent.server, unpack(args))
                         end
                     end
                 end
