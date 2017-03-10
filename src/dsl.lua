@@ -36,6 +36,17 @@ function new_type(creator)
             end
         }
     )
+    function t:new(...)
+        local instance = { type = self }
+        if creator then
+            creator(instance, ...)
+        end
+        if self.lang and self.lang.new_instance then
+            t.lang.new_instance(instance)
+        end
+        return instance
+    end
+
     return t
 end
 
@@ -106,7 +117,7 @@ class = new_metatype(
         if target == "client" then
             self.connection = default_connector:new_interface(self)
         else
-            self.server = self.type.server.new()
+            self.server = self.type.server:new()
         end
         for _, func in ipairs(self.type.functions) do
             self[func.name] = func()
@@ -132,9 +143,9 @@ struct = new_metatype(
             }
         )
     end,
-    function(self)
-        for _, field in ipairs(self.type.fields) do
-            self[field.name] = field.type().value
+    function(self, str)
+        for _, field in pairs(self.type.fields) do
+            self[field.name] = field.type:new(str[field.name]).value
         end
     end
 )
@@ -169,34 +180,54 @@ func = new_metatype(
         setmetatable(self,
             {
                 __call = function(f, ...)
-                    local args = {...}
+                    local in_args = {...}
+                    local use_args = {}
+                    for i = 1, #f.type.input do
+                        table.insert(use_args, f.type.input[i].type:new(in_args[1]).value)
+                    end
+                    local return_value = nil
                     if f.type.impl then
-                        return f.type.impl(unpack(args))
+                        return_value = f.type.impl(unpack(use_args))
                     else
                         if target == "client" then
-                            local ret = f.parent.connection:send_with_return(
-                                { func_name = f.type.name, args = args }
+                            return_value = f.parent.connection:send_with_return(
+                                { func_name = f.type.name, args = use_args }
                             )
-                            return ret
                         else
-                            return f.parent.server[f.type.name](f.parent.server, unpack(args))
+                            return_value = f.parent.server[f.type.name](f.parent.server, unpack(use_args))
                         end
                     end
+                    return f.type.output:new(return_value).value
                 end
             }
         )
     end
 )
 
+
+function primite_type_creator(def)
+    return function(self, actual)
+        if actual == nil then
+            self.value = def
+        else
+            if type(actual) ~= type(def) then
+                error(string.format("Invalid type of %s(%s) - expect type %s",
+                    tostring(actual), type(actual), type(def)))
+            end
+            self.value = actual
+        end
+    end
+end
+
 --[[
     Public API
 ]]
-int_t    = new_type(function(self) self.value = 0 end)
-str_t    = new_type(function(self) self.value = "" end)
-none_t   = new_type(function(self) self.value = nil end)
-float_t  = new_type(function(self) self.value = 0.0 end)
-double_t = new_type(function(self) self.value = 0.0 end)
-bool_t   = new_type(function(self) self.value = false end)
+int_t    = new_type(primite_type_creator(0))
+str_t    = new_type(primite_type_creator(""))
+none_t   = new_type(primite_type_creator(nil))
+float_t  = new_type(primite_type_creator(0.0))
+double_t = new_type(primite_type_creator(0.0))
+bool_t   = new_type(primite_type_creator(false))
 
 function GetStructures()
     return structures

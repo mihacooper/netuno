@@ -113,8 +113,10 @@ static {*str.name*} {*str.name*}FromLuaObject(const sol::stack_table& obj)
 {%for _, interface  in pairs(interfaces) do%}
 {*interface.name*}::{*interface.name*}()
 {
-    m_interface = (*g_luaState)["{*interface.name*}"]();
-    CHECK(m_interface.valid(), "Unable to get Lua interface");
+    sol::table interfaceFactory = (*g_luaState)["{*interface.name*}"];
+    CHECK(interfaceFactory.valid(), "Unable to get Lua interface type");
+    m_interface = interfaceFactory["new"](interfaceFactory);
+    CHECK(m_interface.valid(), "Unable to get Lua interface instance");
 }
 
 {*interface.name*}::~{*interface.name*}()
