@@ -26,7 +26,8 @@ function tcp_connector:new_interface(interface)
         self:send(data)
         local line, err = self.sock:receive("*l")
         assert(err == nil)
-        return decode(line)
+        local ret = decode(line)
+        return ret--next(ret) == nil and nil or ret
     end
 
     function conn:send(data)
@@ -58,7 +59,7 @@ function tcp_connector:run_server(port)
             local request = decode(line)
             local iface_t = _G[request[1]]
             assert(iface_t)
-            local iface = iface_t()
+            local iface = iface_t:new()
             assert(iface)
             return iface
         end
@@ -78,6 +79,6 @@ function tcp_connector:run_server(port)
         assert(err == nil, err)
         local request = decode(line)
         local ret = iface[request.func_name](unpack(request.args))
-        conn:send(encode(ret or {}))
+        conn:send(encode(ret))
     end
 end

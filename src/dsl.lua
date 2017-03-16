@@ -144,8 +144,9 @@ struct = new_metatype(
         )
     end,
     function(self, str)
+        self.value = {}
         for _, field in pairs(self.type.fields) do
-            self[field.name] = field.type:new(str[field.name]).value
+            self.value[field.name] = field.type:new(str[field.name]).value
         end
     end
 )
@@ -183,7 +184,7 @@ func = new_metatype(
                     local in_args = {...}
                     local use_args = {}
                     for i = 1, #f.type.input do
-                        table.insert(use_args, f.type.input[i].type:new(in_args[1]).value)
+                        table.insert(use_args, f.type.input[i].type:new(in_args[i]).value)
                     end
                     local return_value = nil
                     if f.type.impl then
@@ -204,8 +205,7 @@ func = new_metatype(
     end
 )
 
-
-function primite_type_creator(def)
+function primitive_type_creator(def)
     return function(self, actual)
         if actual == nil then
             self.value = def
@@ -222,12 +222,12 @@ end
 --[[
     Public API
 ]]
-int_t    = new_type(primite_type_creator(0))
-str_t    = new_type(primite_type_creator(""))
-none_t   = new_type(primite_type_creator(nil))
-float_t  = new_type(primite_type_creator(0.0))
-double_t = new_type(primite_type_creator(0.0))
-bool_t   = new_type(primite_type_creator(false))
+int_t    = new_type(primitive_type_creator(0))
+str_t    = new_type(primitive_type_creator(""))
+none_t   = new_type(primitive_type_creator(nil))
+float_t  = new_type(primitive_type_creator(0.0))
+double_t = new_type(primitive_type_creator(0.0))
+bool_t   = new_type(primitive_type_creator(false))
 
 function GetStructures()
     return structures

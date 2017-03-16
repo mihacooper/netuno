@@ -30,7 +30,6 @@ int main()
     InitializeSdk();
     SampleInterface interface;
     SampleStructure str{76, "oprst"};
-
     CHECK_FUNC(interface.MyFunction1(10, 12), (SampleStructure{10,"12"}));
     CHECK_FUNC(interface.MyFunction2(str, "string"), str.field1);
     interface.MyFunction3(10); // return nothing, so just call it
