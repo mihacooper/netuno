@@ -4,15 +4,13 @@ require "helpers"
 
 return function(module_name, language, target)
     local root_dir = os.getenv("LUA_RPC_SDK") or "."
-    package.cpath = package.cpath .. ";" ..
-        --root_dir .. "/externals/?.lua;" ..
-        root_dir .. "/externals/?.so;"
-
-    _G.target = target
+    package.cpath = package.cpath .. ";" .. root_dir .. "/externals/?.so;"
 
     if not value_in_table(target, {'client', 'server'}) then
         return false, "Invalid target: " .. target
     end
+
+    _G.target = target
 
     if module_name == nil or io.open(module_name, "r") == nil then
         return false, "Invalid module file: " .. module_name

@@ -1,18 +1,19 @@
 require "helpers"
 local socket = require "socket"
 local effil = require "libeffil"
-json = require "json"
+local json = require "json"
 
+-- Global variables
 tcp_connector = {}
 default_connector = tcp_connector
 
-function encode(data)
+local function encode(data)
     local ret, jdata = pcall(json.encode, data, true)
     assert(ret, "Unable to parse data to json:\n" .. jdata .. "\n" .. table.show(data))
     return jdata .. "\n"
 end
 
-function decode(jdata)
+local function decode(jdata)
     local ret, data = pcall(json.decode, jdata)
     assert(ret, "Unable to parse data from json, err: " .. tostring(data))
     return data
