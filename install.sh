@@ -30,10 +30,11 @@ make install LUAV=5.2 \
 # 2. Effil building
 mkdir $WORK_DIR/effil_build
 cd $WORK_DIR/effil_build
-cmake $ROOT_DIR/src/effil
-make -j4
+cmake $ROOT_DIR/src/effil -DCMAKE_BUILD_TYPE=Debug
+make -j4 && make install
 mkdir $DEST_DIR/externals/effil 2> /dev/null
-cp $WORK_DIR/effil_build/libeffil.so $DEST_DIR/externals/
+cp $WORK_DIR/effil_build/libeffil.so $DEST_DIR/externals/effil
+cp $WORK_DIR/effil_build/effil.lua $DEST_DIR/externals/effil
 
 # 3. Bind sources
 cd $ROOT_DIR

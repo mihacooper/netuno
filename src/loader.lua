@@ -1,11 +1,14 @@
+local root_dir = os.getenv("LUA_RPC_SDK") or "."
+package.cpath = package.cpath .. ";" .. root_dir .. "/externals/effil/?.so"
+package.cpath = package.cpath .. ";" .. root_dir .. "/externals/?.so"
+package.path = package.path .. ";" .. root_dir .. "/externals/effil/?.lua"
+package.path = package.path .. ";" .. root_dir .. "/externals/?.lua"
+
 require "os"
 require "string"
 require "helpers"
 
 return function(module_name, language, target)
-    local root_dir = os.getenv("LUA_RPC_SDK") or "."
-    package.cpath = package.cpath .. ";" .. root_dir .. "/externals/?.so;"
-
     if not value_in_table(target, {'client', 'server'}) then
         return false, "Invalid target: " .. target
     end

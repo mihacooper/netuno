@@ -27,12 +27,14 @@ int return_code = 0;
 
 int main()
 {
-    InitializeSdk();
+    RpcSdk sdk;
+    sdk.Initialize();
     SampleInterface interface;
     SampleStructure str{76, "oprst"};
     CHECK_FUNC(interface.MyFunction1(10, 12), (SampleStructure{10,"12"}));
     CHECK_FUNC(interface.MyFunction2(str, "string"), str.field1);
     interface.MyFunction3(10); // return nothing, so just call it
     CHECK_FUNC(interface.MyFunction4(), "return string");
+    interface.FinishTest();
     return return_code;
 }

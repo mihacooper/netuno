@@ -1,6 +1,5 @@
 require "helpers"
 require "networking"
-json = require "json"
 
 local function CheckName(name)
     first, last = string.find(name, '[%a|_][%a|_|%d]+')
@@ -115,9 +114,10 @@ class = new_metatype(
             self[key] = val
         end
         if target == "client" then
-            self.connection = default_connector:new_interface(self)
+            local connector = self.connector or default_connector
+            self.connection = connector:initialize_master(self)
         else
-            self.server = self.type.server:new()
+            self.server = self.type.server()
         end
         for _, func in ipairs(self.type.functions) do
             self[func.name] = func()
@@ -191,8 +191,10 @@ func = new_metatype(
                         return_value = f.type.impl(unpack(use_args))
                     else
                         if target == "client" then
-                            return_value = f.parent.connection:send_with_return(
-                                { func_name = f.type.name, args = use_args }
+                            local connection = (f.type.connector and (f.connection or f.type.connector:initialize_master(f.parent)))
+                                    or f.parent.connection
+                            return_value = connection:send_with_return(
+                                { request = "call", method = f.type.name, args = use_args }
                             )
                         else
                             return_value = f.parent.server[f.type.name](f.parent.server, unpack(use_args))
@@ -235,4 +237,29 @@ end
 
 function GetInterfaces()
     return interfaces
+end
+
+function register_target(masters, slaves)
+    for _, master in ipairs(masters) do
+        for _, slave in ipairs(slaves) do
+            if master == slave then
+                error("Unbale to use the same interface as both slave and master: " .. master.name)
+            end
+        end
+    end
+    for _, slave in ipairs(slaves) do
+        if slave.connector ~= nil then
+            connectors.add(slave.connector)
+        end
+        for _, func in ipairs(slave.functions) do
+            if func.connector ~= nil then
+                connectors.add(func.connector)
+            end
+        end
+    end
+    if default_connector then
+        connectors.add(default_connector)
+    end
+    master_interfaces = masters
+    slave_interfaces = slaves
 end

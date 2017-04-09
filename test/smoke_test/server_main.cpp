@@ -1,5 +1,6 @@
 #include <iostream>
 #include "sample.hpp"
+#include "atomic"
 
 using namespace rpc_sdk;
 
@@ -27,7 +28,18 @@ std::string SampleInterface::MyFunction4()
     return "return string";
 }
 
+volatile std::atomic_bool g_stopProc(false);
+
+void SampleInterface::FinishTest()
+{
+    std::cout << "Server received finished massage" << std::endl;
+    g_stopProc = true;
+}
+
 int main()
 {
-    InitializeSdk();
+    RpcSdk sdk;
+    sdk.Initialize();
+    while(!g_stopProc){};
+    //std::this_thread::sleep_for(std::chrono::seconds(20));
 }
