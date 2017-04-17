@@ -22,7 +22,7 @@ if not ret then
     os.exit(1)
 end
 
-local module_name = string.gsub(module_path, ".*[/\\](%w-).lua", "%1")
+local module_name = string.gsub(module_path, "(%w-).lua", "%1")
 if type(module_name) ~= "string" then
     print("Unable to get module name")
     os.exit(1)

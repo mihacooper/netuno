@@ -29,21 +29,10 @@ local header_template =
 namespace rpc_sdk
 {
 
-class RpcSdk {
-public:
-    RpcSdk();
-    ~RpcSdk();
-    void Initialize(const std::string& pathToModule = "", int port = 9898);
-    void Uninitialize();
+void Initialize(const std::string& pathToModule = "");
+void Uninitialize();
 
-{%if #slave_interfaces > 0 then%}
-private:
-    void ServerWorker(int port);
-
-    std::atomic_bool m_bStopThread;
-    std::shared_ptr<std::thread> m_pServerThread;
-{%end%}
-};
+typedef std::shared_ptr<sol::state> SdkState;
 
 {%for _, str  in pairs(structs) do%}
 struct {*str.name*}
@@ -79,6 +68,8 @@ public:
 {%end%}
 
 private:
+    SdkState m_sdkState;
+    std::mutex m_lock;
     sol::table m_interface;
 };
 
@@ -93,6 +84,7 @@ local source_template =
 
 #include <stdlib.h>
 #include <memory>
+#include <functional>
 
 namespace rpc_sdk
 {
@@ -101,13 +93,11 @@ namespace rpc_sdk
     if(!(x)) { printf("ERROR at %s:%d\n\t%s ", __FILE__, __LINE__, #x); \
         throw std::runtime_error(msg);} }
 
-struct SdkState
-{
-    sol::state state;
-    std::mutex lock;
-};
+namespace {
 
-std::shared_ptr<SdkState> g_sdkState;
+std::vector<std::shared_ptr<std::thread>> g_serverThreads;
+std::string g_pathToModule = ".";
+std::string g_sdkPath = ".";
 
 {%for _, str  in pairs(structs) do%}
 static sol::object {*str.name*}ToLuaObject(sol::state_view state, {*str.name*} str)
@@ -134,20 +124,70 @@ class WrapperOf{*interface.name*} : public {*interface.name*}
 {
 public:
 {%for _, func  in ipairs(interface.functions) do%}
-{-raw-}    {-raw-}{%if func.output.lang.to_lua then%}sol::object{%else%}{*func.output.lang.name*}{%end%} WrapperOf{*func.name*}({%for i = 1, #func.input do%}{%if func.input[i].type.lang.from_lua then%}sol::stack_object{%else%}{*func.input[i].type.lang.name*}{%end%} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%})
+{-raw-}    {-raw-}{%if func.output.lang.to_lua then%}sol::object{%else%}{*func.output.lang.name*}{%end%} WrapperOf{*func.name*}(sol::this_state state{%for i = 1, #func.input do%}, {%if func.input[i].type.lang.from_lua then%}sol::stack_object{%else%}{*func.input[i].type.lang.name*}{%end%} {*func.input[i].name*}{%end%})
     {
-{-raw-}        {-raw-}{%if func.output ~= none_t then%}{-raw-}return {-raw-}{%if func.output.lang.to_lua then%}{*func.output.lang.to_lua*}(g_sdkState->state, {%else%}({%end%}{%else%}({%end%}{*interface.name*}::{*func.name*}({%for i = 1, #func.input do%}{%if func.input[i].type.lang.from_lua then%}{*func.input[i].type.lang.from_lua*}{%end%}({*func.input[i].name*}){%if i ~= #func.input then%},{%end%}{%end%}));
+{-raw-}        {-raw-}{%if func.output ~= none_t then%}{-raw-}return {-raw-}{%if func.output.lang.to_lua then%}{*func.output.lang.to_lua*}(state, {%else%}({%end%}{%else%}({%end%}{*interface.name*}::{*func.name*}({%for i = 1, #func.input do%}{%if func.input[i].type.lang.from_lua then%}{*func.input[i].type.lang.from_lua*}{%end%}({*func.input[i].name*}){%if i ~= #func.input then%},{%end%}{%end%}));
     }
 
 {%end%}
 };
 {%end%}
 
-{%for _, interface  in pairs(master_interfaces) do%}
-{*interface.name*}::{*interface.name*}()
+{%for _, interface  in pairs(slave_interfaces) do%}
+sol::object {*interface.name*}Creator(const sol::this_state& state)
 {
-    std::lock_guard<std::mutex> lock(g_sdkState->lock);
-    sol::table interfaceFactory = g_sdkState->state["{*interface.name*}"];
+    sol::usertype<WrapperOf{*interface.name*}> type(
+{%for i = 1, #interface.functions do%}
+        "{*interface.functions[i].name*}", &WrapperOf{*interface.name*}::WrapperOf{*interface.functions[i].name*}{%if i ~= #interface.functions then%},{%end%}
+
+{%end%}
+    );
+    sol::stack::push(state, type);
+    sol::stack::pop<sol::object>(state);
+    return sol::make_object(state, WrapperOf{*interface.name*}());
+}
+
+{%end%}
+
+void RunNewState(sol::this_state, const sol::function&);
+
+SdkState CreateNewState()
+{
+    SdkState sdkState = std::make_shared<sol::state>();
+    sdkState->open_libraries();
+
+    sdkState->script("package.path = package.path .. ';' .. '" + g_sdkPath + "' .. '/?.lua'");
+    const std::string pathToLoader = g_sdkPath + std::string("/loader.lua");
+    sol::function loadInterfaceFunc = sdkState->script_file(pathToLoader);
+    CHECK(loadInterfaceFunc.valid(), "Unable to load loader");
+    loadInterfaceFunc(g_pathToModule.empty() ? "{*module_path*}" : g_pathToModule, "cpp", "{*target*}");
+
+{%for _, interface  in pairs(slave_interfaces) do%}
+    (*sdkState)["{*interface.name*}"]["server"] = &{*interface.name*}Creator;
+{%end%}
+    (*sdkState)["run_new_state"] = std::function<void(sol::this_state, const sol::function&)>(
+                std::bind(&RunNewState, std::placeholders::_1, std::placeholders::_2));
+    return sdkState;
+}
+
+void RunNewState(sol::this_state state, const sol::function& func)
+{
+    SdkState sdkState = CreateNewState();
+    const std::string rawFunc = sol::state_view(state)["string"]["dump"](func);
+    g_serverThreads.push_back(
+        std::make_shared<std::thread>([=](SdkState sdkState){
+            sol::function runnner = (*sdkState)["loadstring"](rawFunc);
+            runnner();
+        }, sdkState));
+}
+
+}
+
+{%for _, interface  in pairs(master_interfaces) do%}
+{*interface.name*}::{*interface.name*}() : m_sdkState(CreateNewState())
+{
+    std::lock_guard<std::mutex> lock(m_lock);
+    sol::table interfaceFactory = (*m_sdkState)["{*interface.name*}"];
     CHECK(interfaceFactory.valid(), "Unable to get Lua interface type");
     m_interface = interfaceFactory["new"](interfaceFactory);
     CHECK(m_interface.valid(), "Unable to get Lua interface instance");
@@ -159,87 +199,53 @@ public:
 {%for _, func  in ipairs(interface.functions) do%}
 {*func.output.lang.name*} {*interface.name*}::{*func.name*}({%for i = 1, #func.input do%}{*func.input[i].type.lang.name*} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%})
 {
-    std::lock_guard<std::mutex> lock(g_sdkState->lock);
+    std::lock_guard<std::mutex> lock(m_lock);
     sol::function func = m_interface["{*func.name*}"];
     CHECK(func.valid(), "Unable to get Lua function object");
-{-raw-}    {-raw-}{%if func.output ~= none_t then%}{-raw-}return {-raw-}{%if func.output.lang.from_lua then%}{*func.output.lang.from_lua*}{%end%}{%end%}(func({%for i = 1, #func.input do%}{%if func.input[i].type.lang.to_lua then%}{*func.input[i].type.lang.to_lua*}(g_sdkState->state, {%else%}({%end%}{*func.input[i].name*}){%if i ~= #func.input then%},{%end%}{%end%}));
+{-raw-}    {-raw-}{%if func.output ~= none_t then%}{-raw-}return {-raw-}{%if func.output.lang.from_lua then%}{*func.output.lang.from_lua*}{%end%}{%end%}(func({%for i = 1, #func.input do%}{%if func.input[i].type.lang.to_lua then%}{*func.input[i].type.lang.to_lua*}(*m_sdkState, {%else%}({%end%}{*func.input[i].name*}){%if i ~= #func.input then%},{%end%}{%end%}));
 }
 
 {%end%}
 {%end%}
-{%if #slave_interfaces > 0 then%}
-namespace {
-{%for _, interface  in pairs(slave_interfaces) do%}
-sol::object {*interface.name*}Creator(const sol::this_state& state)
+
+void Initialize(const std::string& pathToModule)
 {
-    sol::usertype<WrapperOf{*interface.name*}> type(
-{%for i = 1, #interface.functions do%}
-        "{*interface.functions[i].name*}", &WrapperOf{*interface.name*}::WrapperOf{*interface.functions[i].name*}{%if i ~= #interface.functions then%},{%end%}
-{%end%}
-    );
-    sol::stack::push(state, type);
-    sol::stack::pop<sol::object>(state);
-    return sol::make_object(state, WrapperOf{*interface.name*}());
-}
-
-{%end%}
-}
-{%end%}
-
-RpcSdk::RpcSdk() {%if #slave_interfaces > 0 then%} : m_bStopThread(false), m_pServerThread(nullptr) {%end%}{ }
-
-{%if #slave_interfaces > 0 then%}
-void RpcSdk::ServerWorker(int port)
-{
-    {
-        std::lock_guard<std::mutex> lock(g_sdkState->lock);
-        g_sdkState->state["connectors"]["initialize"]();
-    }
-    while(!m_bStopThread) {
-        std::lock_guard<std::mutex> lock(g_sdkState->lock);
-        g_sdkState->state["connectors"]["loop"]();
-    };
-}
-{%end%}
-
-void RpcSdk::Initialize(const std::string& pathToModule, int port)
-{
-    g_sdkState = std::make_shared<SdkState>();
-    CHECK(g_sdkState.get() != nullptr, "Unable to create lus state");
-    g_sdkState->state.open_libraries();
-
     const char* cPath = getenv("LUA_RPC_SDK");
-    const std::string sdkPath = cPath ? cPath : ".";
-    const std::string pathToLoader = sdkPath + std::string("/loader.lua");
-    g_sdkState->state.script("package.path = package.path .. ';' .. '" + sdkPath + "' .. '/?.lua'");
-    sol::function loadInterfaceFunc = g_sdkState->state.script_file(pathToLoader);
-    CHECK(loadInterfaceFunc.valid(), "Unable to load loader");
-    loadInterfaceFunc(pathToModule.empty() ? "{*module_path*}" : pathToModule, "cpp", "{*target*}");
-
+    g_sdkPath = cPath ? cPath : ".";
+    g_pathToModule = pathToModule;
 {%if #slave_interfaces > 0 then%}
-{%for _, interface  in pairs(slave_interfaces) do%}
-    g_sdkState->state["{*interface.name*}"]["server"] = &{*interface.name*}Creator;
-{%end%}
-    m_pServerThread = std::make_shared<std::thread>(&RpcSdk::ServerWorker, this, port);
-{%end%}
-}
-
-void RpcSdk::Uninitialize()
-{
-{%if #slave_interfaces > 0 then%}
-    if (m_pServerThread)
+    SdkState sdkState = CreateNewState();
+    CHECK(sdkState.get() != nullptr, "Unable to create new state");
+    size_t conn_size = (*sdkState)["connectors"]["size"]();
+    for (size_t i = 0; i < conn_size; i++)
     {
-        m_bStopThread = true;
-        m_pServerThread->join();
+        if (i != 0)
+        {
+            sdkState = CreateNewState();
+            CHECK(sdkState.get() != nullptr, "Unable to create new state");
+        }
+        g_serverThreads.push_back(std::make_shared<std::thread>(
+                [=](SdkState state) {
+                    sol::table connector = (*state)["connectors"][i + 1];
+                    CHECK(connector.valid(), "Unable to get a connector #" + std::to_string(i));
+                    connector["run_slave"](connector);
+                }, sdkState));
     }
-    m_pServerThread.reset();
 {%end%}
-    g_sdkState.reset();
 }
 
-RpcSdk::~RpcSdk()
+void Uninitialize()
 {
-    Uninitialize();
+    sol::state state;
+    state.open_libraries(sol::lib::base, sol::lib::package, sol::lib::os, sol::lib::string);
+    state.script("package.path = package.path .. ';' .. '" + g_sdkPath + "' .. '/externals/effil/?.lua'");
+    state.script("package.cpath = package.cpath .. ';' .. '" + g_sdkPath + "' .. '/externals/effil/?.so'");
+    state.script("require 'effil'.G.shutdown = true");
+    for (auto thread: g_serverThreads)
+    {
+        thread->join();
+    }
+    g_serverThreads.clear();
 }
 
 } // rpc_sdk
@@ -247,6 +253,8 @@ RpcSdk::~RpcSdk()
 
 return function(props)
     local structs = GetStructures()
+    local master_interfaces, slave_interfaces = GetInterfaces()
+
     local config = {
         target = target,
         module_name = props.module_name,

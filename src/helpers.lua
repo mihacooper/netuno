@@ -1,22 +1,41 @@
 DEBUG = true
+
 require 'string'
+local json = require "json"
 local templates = require "template.lib.resty.template"
 
-function Debug(...)
+function log_dbg(fmt, ...)
     if DEBUG then
-        print(table.concat(arg, " "))
+        print(string.format(fmt, ...))
     end
 end
 
-function Error(...)
-    error(table.concat({...}, " "))
-    os.exit(1)
+function log_err(fmt, ...)
+    local msg = string.format(fmt, ...)
+    print(msg)
+    error(msg)
 end
 
 function Expect(cond, msg)
     if not cond then
         Error(msg)
     end
+end
+
+function encode(data)
+    local ret, jdata = pcall(json.encode, data, true)
+    if not ret then
+        log_err("Unable to parse data to json:%s\n%s\n", jdata, table.show(data))
+    end
+    return jdata .. "\n"
+end
+
+function decode(jdata)
+    local ret, data = pcall(json.decode, jdata)
+    if not ret then
+        log_err("Unable to parse data to json:%s\n%s\n", tostring(data), jdata)
+    end
+    return data
 end
 
 function table.copy(dst, src)

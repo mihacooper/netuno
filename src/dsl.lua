@@ -87,7 +87,6 @@ function new_metatype(type_creator, instance_creator)
     return t
 end
 
-local interfaces = {}
 class = new_metatype(
     function(self)
         setmetatable(self,
@@ -103,7 +102,6 @@ class = new_metatype(
                             ret.flags[k] = v
                         end
                     end
-                    table.insert(interfaces, ret)
                     return ret
                 end
             }
@@ -235,8 +233,10 @@ function GetStructures()
     return structures
 end
 
+local master_interfaces, slave_interfaces = {}, {}
+
 function GetInterfaces()
-    return interfaces
+    return master_interfaces, slave_interfaces
 end
 
 function register_target(masters, slaves)

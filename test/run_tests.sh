@@ -1,19 +1,29 @@
 #!/bin/bash
 
-USE_INSTALL=true
+USE_INSTALL=false
+TEST_MASK=".*"
 
-TEST_MASK=$1
-if [ "$TEST_MASK" == "" ]; then
-    TEST_MASK=".*"
-fi
+while [[ $# -ge 1 ]]; do
+    case $1 in
+        -r|--reinstall)
+            export USE_INSTALL=true
+            shift
+        ;;
+        -f|--filter)
+            TEST_MASK="$2"
+            shift
+        ;;
+        *)
+          echo "Unknown option $1"
+          exit 1
+        ;;
+    esac
+    shift # past argument or value
+done
 
 export ROOT_DIR="$(cd $(dirname $0); pwd)"
 export WORK_DIR="$ROOT_DIR/work_dir"
-if $USE_INSTALL; then
-    export SDK_DIR="$WORK_DIR/sdk"
-else
-    export SDK_DIR="$ROOT_DIR/../src"
-fi
+export SDK_DIR="$WORK_DIR/sdk"
 export LUA_RPC_SDK=$SDK_DIR
 
 if ! [ -d $WORK_DIR ]; then
@@ -61,26 +71,45 @@ function testf_expect()
     $@ || testf_log "[  EXPECT   ] '$@'"
 }
 
+function testf_compile()
+{
+    binary_name=$1; shift
+    testf_assert g++ -pthread -std=c++14 $@ \
+        -I/usr/include/lua5.2 -I$SDK_DIR -I$WORK_DIR \
+        -llua5.2 -o $binary_name
+}
+
+function testf_generate_cpp()
+{
+    MODULE_NAME=$1
+    cp $TEST_DIR/${MODULE_NAME}.lua .
+    lua $SDK_DIR/rpc.lua "${MODULE_NAME}.lua" cpp $2
+    testf_assert [ -f "${MODULE_NAME}.cpp" ]
+    testf_assert [ -f "${MODULE_NAME}.hpp" ]
+}
+
 export -f testf_log
 export -f testf_err
 export -f testf_ok
 export -f testf_assert
+export -f testf_compile
+export -f testf_generate_cpp
 
-echo "[############] Start time: $(date +'%D %T.%3N')"
+testf_log "[############] Start time: $(date +'%D %T.%3N')"
 
-for test_suite in $(find . -name "*_test" -type d  -printf "%f\n"); do
+cd $WORK_DIR
+for test_suite in $(find ${ROOT_DIR} -name "*_test" -type d  -printf "%f\n"); do
     SUITE_HAS_ERROR=false
     testf_log "----------------------------------------------"
-    testf_log "[   START   ] $test_suite test suite"
-    cd $test_suite
-    export TEST_DIR=$PWD
-    for test_case in $(find . -name 'test_*.sh' -type f  -printf "%f\n"); do
+    testf_ok  "[   START   ] $test_suite test suite"
+    export TEST_DIR=${ROOT_DIR}/$test_suite
+    for test_case in $(find ${ROOT_DIR}/${test_suite} -name "test_*.sh" -type f  -printf "%f\n"); do
         # Filter tests
         echo "$test_suite.$test_case" | grep "$TEST_MASK" >/dev/null 2>&1 || continue
 
         # Run test
-        testf_log "[   START   ] $test_suite.$test_case test case"
-        bash -e $test_case
+        testf_ok "[   START   ] $test_suite.$test_case test case"
+        bash -e ${ROOT_DIR}/${test_suite}/$test_case
         if [ $? == 0 ]; then
             testf_ok "[  SUCCESS  ] $test_suite.$test_case"
         else

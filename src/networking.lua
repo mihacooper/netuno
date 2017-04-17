@@ -1,7 +1,5 @@
 require "helpers"
-local socket = require "socket.socket"
-local effil = require "effil"
-local json = require "json"
+local socket = require "socket"
 
 -- Global variables
 connectors = {}
@@ -10,12 +8,6 @@ interface_instances = {}
 function connectors.initialize()
     for _, conn in ipairs(connectors) do
         conn:initialize_slave()
-    end
-end
-
-function connectors.loop()
-    for _, conn in ipairs(connectors) do
-        conn:loop()
     end
 end
 
@@ -32,16 +24,8 @@ function connectors.add(conn)
     end
 end
 
-local function encode(data)
-    local ret, jdata = pcall(json.encode, data, true)
-    assert(ret, "Unable to parse data to json:\n" .. jdata .. "\n" .. table.show(data))
-    return jdata .. "\n"
-end
-
-local function decode(jdata)
-    local ret, data = pcall(json.decode, jdata)
-    assert(ret, "Unable to parse data from json, err: " .. tostring(data))
-    return data
+function connectors.size()
+    return #connectors
 end
 
 function get_interface_id(interface)
@@ -60,7 +44,9 @@ function tcp_connector(host, port)
         function conn:send_with_return(data)
             self:send(data)
             local line, err = self.sock:receive("*l")
-            assert(err == nil)
+            if err ~= nil then
+                log_err("Connection [%s] has received error: %s", self.iid, err)
+            end
             local ret = decode(line)
             return ret--next(ret) == nil and nil or ret
         end
@@ -78,15 +64,19 @@ function tcp_connector(host, port)
 
         if interface.iid == nil then
             local response = conn:send_with_return({ request = "new", interface = interface.type.name})
-            assert(response.status == "ok", "got: " .. response.status)
-            assert(type(response.iid) == "string" and response.iid ~= "", "got invalid IID = " .. response.iid)
+            if response.status ~= "ok" then
+                log_err("Attept to create a new connection has failed, error: %s", response.status)
+            end
+            if type(response.iid) ~= "string" or response.iid == "" then
+                log_err("New connection has received invalid IID = %s", response.iid)
+            end
             interface.iid = response.iid
         end
         conn.iid = interface.iid
         return conn
     end
 
-    function connector:handle_message(data)
+    function connector:run_server_thread(socket_fd)
         local processor = {
             new = function(data)
                 local iface_t = _G[data.interface]
@@ -106,36 +96,56 @@ function tcp_connector(host, port)
                 return method(unpack(data.args))
             end
         }
-        return processor[data["request"]](data)
+        log_dbg("Server thread of 'tcp_connector' has started with %s", socket_fd)
+        local connection = assert(socket.connect(self.host, self.port + 1))
+        connection:close()
+        connection:setfd(socket_fd)
+        while not effil.G.shutdown do
+            local data, status = connection:receive("*l")
+            log_dbg("Server thread [%s] receive: %s, err: %s", socket_fd, data, status or "nil")
+            if status == "closed" then
+                connection:close()
+                break
+            else
+                local decoded_data = decode(data)
+                local request = decoded_data["request"]
+                local data_to_send = ""
+                if request == nil or processor[request] == nil then
+                    data_to_send = encode({status = "error: invalid request"})
+                else
+                    local response = processor[request](decoded_data)
+                    data_to_send = encode(response)
+                end
+                log_dbg("Server thread [%s] sent: %s", socket_fd, data_to_send)
+                connection:send(data_to_send)
+            end
+        end
     end
 
-    function connector:initialize_slave()
+    function connector:run_slave()
+        log_dbg("Run a 'tcp_connector' server")
+        local dummy_server = assert(socket.bind(self.host, self.port + 1))
         local server = assert(socket.bind(self.host, self.port))
         assert(server:setoption("reuseaddr", true))
         assert(server:setoption("linger", { on = false, timeout = 0}))
         server:settimeout(0)
-        self.server = server
-        self.queue = {}
-    end
+        effil.G['system']['tcp_connector'] = effil.channel()
 
-    function connector:loop(port)
-         -- 1. Handle new conncetions 
-        local new_conn = self.server:accept()
-        if new_conn then
-            table.insert(self.queue, new_conn)
-        end
-         -- 2. Handle existent conn's
-        local to_recv, to_send = socket.select(self.queue, self.queue, 0)
-        for sock_n, sock in ipairs(to_recv) do
-            local data, status = sock:receive("*l")
-            if status == "closed" then
-                table.remove(self.queue, sock_n)
-                sock:close()
-            else
-                local response = self:handle_message(decode(data))
-                sock:send(encode(response))
+        while not effil.G.shutdown do
+            local new_conn = server:accept()
+            if new_conn then
+                log_dbg("Server 'tcp_connector' got a new connection", new_conn:getfd())
+                effil.G['system']['tcp_connector']:push(self.host, self.port, new_conn:getfd())
+
+                run_new_state(function()
+                        local host, port, fd = effil.G['system']['tcp_connector']:pop()
+                        tcp_connector(host, port):run_server_thread(fd)
+                    end
+                )
+                new_conn:setfd(0)
             end
         end
     end
+
     return connector
 end

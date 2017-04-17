@@ -38,8 +38,10 @@ void SampleInterface::FinishTest()
 
 int main()
 {
-    RpcSdk sdk;
-    sdk.Initialize();
-    while(!g_stopProc){};
-    //std::this_thread::sleep_for(std::chrono::seconds(20));
+    Initialize();
+    while(!g_stopProc)
+    {
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    };
+    Uninitialize();
 }

@@ -7,6 +7,11 @@ package.path = package.path .. ";" .. root_dir .. "/externals/?.lua"
 require "os"
 require "string"
 require "helpers"
+effil = require "effil"
+
+if effil.G['system'] ==  nil then
+    effil.G['system'] = {}
+end
 
 return function(module_name, language, target)
     if not value_in_table(target, {'client', 'server'}) then
