@@ -30,7 +30,7 @@ make install LUAV=5.2 \
 # 2. Effil building
 mkdir $WORK_DIR/effil_build
 cd $WORK_DIR/effil_build
-cmake $ROOT_DIR/src/effil -DCMAKE_BUILD_TYPE=Debug
+cmake $ROOT_DIR/externals/effil -DCMAKE_BUILD_TYPE=Debug
 make -j4 && make install
 mkdir $DEST_DIR/externals/effil 2> /dev/null
 cp $WORK_DIR/effil_build/libeffil.so $DEST_DIR/externals/effil
@@ -41,9 +41,9 @@ cd $ROOT_DIR
 
 lua $ROOT_DIR/externals/luacc/bin/luacc.lua \
     -o $DEST_DIR/loader.lua \
-    -i $ROOT_DIR -i $ROOT_DIR/src -i $WORK_DIR/socket/modules \
-    -i $ROOT_DIR/src/json/json \
-    loader helpers dsl networking \
+    -i $ROOT_DIR -i $ROOT_DIR/src -i $ROOT_DIR/externals -i $DEST_DIR/externals/effil \
+    -i $WORK_DIR/socket/modules -i $ROOT_DIR/externals/json/json \
+    loader helpers dsl networking effil \
     template.lib.resty.template \
     lang-cpp.binding \
     socket json

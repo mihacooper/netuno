@@ -1,5 +1,5 @@
 [submodule "src/template"]
-	path = src/template
+	path = externals/template
 	url = https://github.com/bungle/lua-resty-template
 [submodule "src/lang-cpp/sol2"]
 	path = src/lang-cpp/sol2
@@ -11,8 +11,8 @@
 	path = externals/luacc
 	url = http://github.com/mihacooper/luacc
 [submodule "src/effil"]
-	path = src/effil
+	path = externals/effil
 	url = https://github.com/loud-hound/effil
 [submodule "src/json"]
-	path = src/json
+	path = externals/json
 	url = https://github.com/craigmj/json4lua
