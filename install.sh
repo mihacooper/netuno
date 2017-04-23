@@ -1,5 +1,10 @@
 #!/bin/sh
 
+set -e
+
+ROOT_DIR="$(cd $(dirname $0); pwd)"
+WORK_DIR=$ROOT_DIR/.build_dir
+LOG_FILE=$WORK_DIR/.log
 HELP_MSG="install.sh <dst directory>"
 DEST_DIR=$1
 
@@ -13,48 +18,84 @@ if ! [ -d $DEST_DIR ]; then
     exit 1
 fi
 
+export CLR_RED='\033[0;31m'
+export CLR_GREEN='\033[0;32m'
+export CLR_NONE='\033[0m'
 
-ROOT_DIR="$(cd $(dirname $0); pwd)"
-WORK_DIR=$ROOT_DIR/work_dir
+log() {
+    echo "[$(date +"%Y:%m:%d %H:%M:%S")] $@"
+}
 
-# 1. Lua socket
-cd $ROOT_DIR/externals/luasocket
-make -j4 LUAV=5.2 LUAINC_linux=/usr/include/lua5.2
-make install LUAV=5.2 \
-    LUAINC_linux=/usr/include/lua5.2 \
-    DESTDIR=$WORK_DIR/socket \
-    CDIR=lib \
-    LDIR=modules \
-    prefix=""
+log_success() {
+    echo -n "${CLR_GREEN}"
+    log $@
+    echo -n "${CLR_NONE}"
+}
 
-# 2. Effil building
-mkdir $WORK_DIR/effil_build
-cd $WORK_DIR/effil_build
-cmake $ROOT_DIR/externals/effil -DCMAKE_BUILD_TYPE=Debug
-make -j4 && make install
-mkdir $DEST_DIR/externals/effil 2> /dev/null
-cp $WORK_DIR/effil_build/libeffil.so $DEST_DIR/externals/effil
-cp $WORK_DIR/effil_build/effil.lua $DEST_DIR/externals/effil
+log_failure() {
+    echo -n "${CLR_RED}"
+    log $@
+    echo -n "${CLR_NONE}"
+}
 
-# 3. Bind sources
-cd $ROOT_DIR
+log_lines() {
+    echo $(wc -l $LOG_FILE | sed -r "s/([0-9]+) .+/\1/")
+}
 
-lua $ROOT_DIR/externals/luacc/bin/luacc.lua \
-    -o $DEST_DIR/loader.lua \
-    -i $ROOT_DIR -i $ROOT_DIR/src -i $ROOT_DIR/externals -i $DEST_DIR/externals/effil \
-    -i $WORK_DIR/socket/modules -i $ROOT_DIR/externals/json/json \
-    loader helpers dsl networking effil \
-    template.lib.resty.template \
-    lang-cpp.binding \
-    socket json
+log_print_error() {
+    log_failure "FAILED:"
+    LINE_TO_PRINT=$(( $(log_lines) - $LAST_LOG_LINE ))
+    tail "-$LINE_TO_PRINT" $LOG_FILE
+    exit 1
+}
 
-# 4. Copy other resources
-cp -r $ROOT_DIR/src/rpc.lua $DEST_DIR/
-mkdir $DEST_DIR/externals 2>/dev/null
-mkdir $DEST_DIR/externals/sol2 2>/dev/null
-cp -r $ROOT_DIR/src/lang-cpp/sol2/single/sol/sol.hpp $DEST_DIR/externals/sol2
+echo "" > $LOG_FILE
 
-mkdir $DEST_DIR/externals/socket 2>/dev/null
-cp -r $WORK_DIR/socket/lib/socket/* $DEST_DIR/externals/socket
+LAST_LOG_LINE=0
+log_success "#1 Building Lua socket"
+{
+    cd $ROOT_DIR/externals/luasocket
+    make -j4 LUAV=5.2 LUAINC_linux=/usr/include/lua5.2 &&
+    make install LUAV=5.2 \
+        LUAINC_linux=/usr/include/lua5.2 \
+        DESTDIR=$WORK_DIR/socket \
+        CDIR=lib \
+        LDIR=modules \
+        prefix=""
+} >> $LOG_FILE 2>&1 || log_print_error
 
-#rm -rf $WORK_DIR
+LAST_LOG_LINE=$(log_lines)
+log_success "#2 Building Effil"
+{
+    mkdir $WORK_DIR/effil
+    cd $WORK_DIR/effil
+    cmake $ROOT_DIR/externals/effil -DCMAKE_BUILD_TYPE=Release &&
+    make -j4 && make install
+} >> $LOG_FILE 2>&1 || log_print_error
+
+LAST_LOG_LINE=$(log_lines)
+log_success "#3 Bind lua sources"
+{
+    cd $ROOT_DIR
+    lua $ROOT_DIR/externals/luacc/bin/luacc.lua \
+        -o $DEST_DIR/loader.lua \
+        -i $ROOT_DIR -i $ROOT_DIR/src -i $ROOT_DIR/externals \
+        -i $WORK_DIR/socket/modules -i $ROOT_DIR/externals/json/json \
+        loader helpers dsl networking \
+        template.lib.resty.template \
+        lang-cpp.binding \
+        socket json
+} >> $LOG_FILE 2>&1 || log_print_error
+
+LAST_LOG_LINE=$(log_lines)
+log_success "#4 Copy to destination directory"
+{
+    mkdir $DEST_DIR/sol2 2>/dev/null
+    mkdir $DEST_DIR/socket 2>/dev/null
+    mkdir $DEST_DIR/effil 2> /dev/null
+    cp $ROOT_DIR/src/rpc.lua $DEST_DIR/ &&
+    cp $ROOT_DIR/src/lang-cpp/sol2/single/sol/sol.hpp $DEST_DIR/sol2 &&
+    cp $WORK_DIR/effil/libeffil.so $DEST_DIR/effil/ &&
+    cp $WORK_DIR/effil/effil.lua $DEST_DIR/effil/ &&
+    cp -r $WORK_DIR/socket/lib/socket/* $DEST_DIR/socket
+} >> $LOG_FILE 2>&1 || log_print_error

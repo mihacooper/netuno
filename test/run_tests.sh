@@ -23,7 +23,7 @@ done
 
 export ROOT_DIR="$(cd $(dirname $0); pwd)"
 export WORK_DIR="$ROOT_DIR/work_dir"
-export SDK_DIR="$WORK_DIR/sdk"
+export SDK_DIR="$ROOT_DIR/sdk"
 export LUA_RPC_SDK=$SDK_DIR
 
 if ! [ -d $WORK_DIR ]; then
@@ -103,22 +103,22 @@ for test_suite in $(find ${ROOT_DIR} -name "*_test" -type d  -printf "%f\n"); do
     testf_log "----------------------------------------------"
     testf_ok  "[   START   ] $test_suite test suite"
     export TEST_DIR=${ROOT_DIR}/$test_suite
-    for test_case in $(find ${ROOT_DIR}/${test_suite} -name "test_*.sh" -type f  -printf "%f\n"); do
+    for test_case in $(find ${ROOT_DIR}/${test_suite} -name "test*.sh" -type f  -printf "%f\n"); do
         # Filter tests
         echo "$test_suite.$test_case" | grep "$TEST_MASK" >/dev/null 2>&1 || continue
 
         # Run test
         testf_ok "[   START   ] $test_suite.$test_case test case"
-        bash -e ${ROOT_DIR}/${test_suite}/$test_case
+        bash -e ${ROOT_DIR}/${test_suite}/$test_case | tee .log
         if [ $? == 0 ]; then
             testf_ok "[  SUCCESS  ] $test_suite.$test_case"
         else
             SUITE_HAS_ERROR=true
             testf_err "[  FAILED   ] $test_suite.$test_case"
+            cp -r $WORK_DIR/ "${ROOT_DIR}/${test_suite}.$test_case.workdir"
         fi
-        #rm -r $WORK_DIR/* 2>/dev/null
+        #rm -r $WORK_DIR/* > /dev/null 2>&1
     done
-    cd ..
     if $SUITE_HAS_ERROR; then
         testf_err "[  FAILED   ] $test_suite"
     else

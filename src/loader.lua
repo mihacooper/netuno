@@ -1,8 +1,8 @@
 local root_dir = os.getenv("LUA_RPC_SDK") or "."
-package.cpath = package.cpath .. ";" .. root_dir .. "/externals/effil/?.so"
-package.cpath = package.cpath .. ";" .. root_dir .. "/externals/?.so"
-package.path = package.path .. ";" .. root_dir .. "/externals/effil/?.lua"
-package.path = package.path .. ";" .. root_dir .. "/externals/?.lua"
+package.cpath = package.cpath .. ";" .. root_dir .. "/effil/?.so"
+package.cpath = package.cpath .. ";" .. root_dir .. "/?.so"
+package.path = package.path .. ";" .. root_dir .. "/effil/?.lua"
+package.path = package.path .. ";" .. root_dir .. "/?.lua"
 
 require "os"
 require "string"

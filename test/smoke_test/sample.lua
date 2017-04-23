@@ -5,6 +5,7 @@ struct "SampleStructure"
 }
 
 default_connector = tcp_connector("127.0.0.1", 9898)
+default_protocol = json_protocol
 
 class "SampleInterface"
 {
@@ -16,7 +17,7 @@ class "SampleInterface"
 }
 
 if target == "client" then
-    register_target({SampleInterface}, {})
+    system.register_target({SampleInterface}, {})
 elseif target == "server" then
-    register_target({}, {SampleInterface})
+    system.register_target({}, {SampleInterface})
 end

@@ -1,6 +1,8 @@
 require "helpers"
 require "networking"
 
+system = {}
+
 local function CheckName(name)
     first, last = string.find(name, '[%a|_][%a|_|%d]+')
     if not(first == 1 and last == #name) then
@@ -113,9 +115,18 @@ class = new_metatype(
         end
         if target == "client" then
             local connector = self.connector or default_connector
-            self.connection = connector:initialize_master(self)
+            local protocol = self.protocol or default_protocol
+            self.connection = connector:create()
+            self.protocol = protocol.new_master(self.connection)
+            self.protocol:request_new(self.type.name)
+            self["%del"] = function()
+                self.protocol:request_del()
+            end
         else
             self.server = self.type.server()
+            if self.server == nil then
+                error("Unable to create slave object: target object is nil")
+            end
         end
         for _, func in ipairs(self.type.functions) do
             self[func.name] = func()
@@ -124,7 +135,7 @@ class = new_metatype(
     end
 )
 
-local structures = {}
+system.structures = {}
 struct = new_metatype(
     function(self)
         setmetatable(self,
@@ -135,7 +146,7 @@ struct = new_metatype(
                     for k,v in ipairs(body) do
                         ret.fields[k] = v
                     end
-                    table.insert(structures, ret)
+                    table.insert(system.structures, ret)
                     return ret
                 end
             }
@@ -189,11 +200,19 @@ func = new_metatype(
                         return_value = f.type.impl(unpack(use_args))
                     else
                         if target == "client" then
-                            local connection = (f.type.connector and (f.connection or f.type.connector:initialize_master(f.parent)))
-                                    or f.parent.connection
-                            return_value = connection:send_with_return(
-                                { request = "call", method = f.type.name, args = use_args }
-                            )
+                            if self.protocol == nil then
+                                if self.type.connector then
+                                    self.connection = self.type.connector:create()
+                                else
+                                    self.connection = self.parent.connection
+                                end
+                                if self.type.protocol or self.type.connector then
+                                    self.protocol = self.type.protocol:new_master(self.connection)
+                                else
+                                    self.protocol = self.parent.protocol
+                                end
+                            end
+                            return_value = self.protocol:request_call(f, unpack(use_args))
                         else
                             return_value = f.parent.server[f.type.name](f.parent.server, unpack(use_args))
                         end
@@ -229,17 +248,27 @@ float_t  = new_type(primitive_type_creator(0.0))
 double_t = new_type(primitive_type_creator(0.0))
 bool_t   = new_type(primitive_type_creator(false))
 
-function GetStructures()
-    return structures
+local master_connectors = {}
+
+function master_connectors.add(conn)
+        local is_new = true
+        for _, val in ipairs(master_connectors) do
+            if val == conn then
+                is_new = false
+                break
+            end
+        end
+        if is_new then
+            table.insert(master_connectors, conn)
+        end
 end
 
-local master_interfaces, slave_interfaces = {}, {}
-
-function GetInterfaces()
-    return master_interfaces, slave_interfaces
+function master_connectors.listen(indx)
+    assert(indx > 0 and indx <= #master_connectors)
+    master_connectors[indx]:listen()
 end
 
-function register_target(masters, slaves)
+function system.register_target(masters, slaves)
     for _, master in ipairs(masters) do
         for _, slave in ipairs(slaves) do
             if master == slave then
@@ -249,17 +278,34 @@ function register_target(masters, slaves)
     end
     for _, slave in ipairs(slaves) do
         if slave.connector ~= nil then
-            connectors.add(slave.connector)
+            master_connectors.add(slave.connector)
         end
         for _, func in ipairs(slave.functions) do
             if func.connector ~= nil then
-                connectors.add(func.connector)
+                master_connectors.add(func.connector)
             end
         end
     end
     if default_connector then
-        connectors.add(default_connector)
+        master_connectors.add(default_connector)
     end
-    master_interfaces = masters
-    slave_interfaces = slaves
+    system.master_interfaces = masters
+    system.slave_interfaces = slaves
+end
+
+function system.run(indx)
+    if indx == nil then
+        effil.G['system']['run'] = effil.channel()
+        for i, _ in ipairs(master_connectors) do
+            effil.G['system']['run']:push(i)
+            run_new_state(function()
+                    local indx = effil.G['system']['run']:pop()
+                    system.run(indx)
+                end
+            )
+        end
+    else
+        master_connectors[indx]:set_protocol(default_protocol)
+        master_connectors[indx]:listen()
+    end
 end

@@ -21,7 +21,7 @@ local header_template =
 [[
 #pragma once
 #include "lua.hpp"
-#include "externals/sol2/sol.hpp"
+#include "sol2/sol.hpp"
 #include "atomic"
 #include "thread"
 #include "mutex"
@@ -33,6 +33,12 @@ void Initialize(const std::string& pathToModule = "");
 void Uninitialize();
 
 typedef std::shared_ptr<sol::state> SdkState;
+
+template<typename T>
+inline std::shared_ptr<T> createInterface()
+{
+    return std::make_shared<T>();
+}
 
 {%for _, str  in pairs(structs) do%}
 struct {*str.name*}
@@ -49,9 +55,9 @@ class {*interface.name*}
 {
 public:
     {*interface.name*}();
-    ~{*interface.name*}();
+    virtual ~{*interface.name*}();
 {%for _, func  in ipairs(interface.functions) do%}
-    {*func.output.lang.name*} {*func.name*}({%for i = 1, #func.input do%}{*func.input[i].type.lang.name*} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%});
+    virtual {*func.output.lang.name*} {*func.name*}({%for i = 1, #func.input do%}{*func.input[i].type.lang.name*} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%});
 {%end%}
 };
 
@@ -120,31 +126,28 @@ static {*str.name*} {*str.name*}FromLuaObject(const sol::stack_table& obj)
 {%end%}
 
 {%for _, interface  in pairs(slave_interfaces) do%}
-class WrapperOf{*interface.name*} : public {*interface.name*}
+class WrapperOf{*interface.name*}
 {
 public:
+    WrapperOf{*interface.name*}(std::shared_ptr<{*interface.name*}> obj) : m_interface(obj) {}
 {%for _, func  in ipairs(interface.functions) do%}
 {-raw-}    {-raw-}{%if func.output.lang.to_lua then%}sol::object{%else%}{*func.output.lang.name*}{%end%} WrapperOf{*func.name*}(sol::this_state state{%for i = 1, #func.input do%}, {%if func.input[i].type.lang.from_lua then%}sol::stack_object{%else%}{*func.input[i].type.lang.name*}{%end%} {*func.input[i].name*}{%end%})
     {
-{-raw-}        {-raw-}{%if func.output ~= none_t then%}{-raw-}return {-raw-}{%if func.output.lang.to_lua then%}{*func.output.lang.to_lua*}(state, {%else%}({%end%}{%else%}({%end%}{*interface.name*}::{*func.name*}({%for i = 1, #func.input do%}{%if func.input[i].type.lang.from_lua then%}{*func.input[i].type.lang.from_lua*}{%end%}({*func.input[i].name*}){%if i ~= #func.input then%},{%end%}{%end%}));
+{-raw-}        {-raw-}{%if func.output ~= none_t then%}{-raw-}return {-raw-}{%if func.output.lang.to_lua then%}{*func.output.lang.to_lua*}(state, {%else%}({%end%}{%else%}({%end%}m_interface->{*func.name*}({%for i = 1, #func.input do%}{%if func.input[i].type.lang.from_lua then%}{*func.input[i].type.lang.from_lua*}{%end%}({*func.input[i].name*}){%if i ~= #func.input then%},{%end%}{%end%}));
     }
 
 {%end%}
+    std::shared_ptr<{*interface.name*}> m_interface;
 };
 {%end%}
 
 {%for _, interface  in pairs(slave_interfaces) do%}
 sol::object {*interface.name*}Creator(const sol::this_state& state)
 {
-    sol::usertype<WrapperOf{*interface.name*}> type(
-{%for i = 1, #interface.functions do%}
-        "{*interface.functions[i].name*}", &WrapperOf{*interface.name*}::WrapperOf{*interface.functions[i].name*}{%if i ~= #interface.functions then%},{%end%}
-
-{%end%}
-    );
-    sol::stack::push(state, type);
-    sol::stack::pop<sol::object>(state);
-    return sol::make_object(state, WrapperOf{*interface.name*}());
+    auto ptr = createInterface<{*interface.name*}>();
+    if (ptr.get() == nullptr)
+        return sol::nil;
+    return sol::make_object(state, std::make_unique<WrapperOf{*interface.name*}>(ptr));
 }
 
 {%end%}
@@ -163,6 +166,16 @@ SdkState CreateNewState()
     loadInterfaceFunc(g_pathToModule.empty() ? "{*module_path*}" : g_pathToModule, "cpp", "{*target*}");
 
 {%for _, interface  in pairs(slave_interfaces) do%}
+    {
+        sol::usertype<WrapperOf{*interface.name*}> type(
+    {%for i = 1, #interface.functions do%}
+            "{*interface.functions[i].name*}", &WrapperOf{*interface.name*}::WrapperOf{*interface.functions[i].name*}{%if i ~= #interface.functions then%},{%end%}
+
+    {%end%}
+        );
+        sol::stack::push(*sdkState, type);
+        sol::stack::pop<sol::object>(*sdkState);
+    }
     (*sdkState)["{*interface.name*}"]["server"] = &{*interface.name*}Creator;
 {%end%}
     (*sdkState)["run_new_state"] = std::function<void(sol::this_state, const sol::function&)>(
@@ -187,21 +200,26 @@ void RunNewState(sol::this_state state, const sol::function& func)
 {*interface.name*}::{*interface.name*}() : m_sdkState(CreateNewState())
 {
     std::lock_guard<std::mutex> lock(m_lock);
-    sol::table interfaceFactory = (*m_sdkState)["{*interface.name*}"];
-    CHECK(interfaceFactory.valid(), "Unable to get Lua interface type");
-    m_interface = interfaceFactory["new"](interfaceFactory);
+    sol::table interfaceType = (*m_sdkState)["{*interface.name*}"];
+    CHECK(interfaceType.valid(), "Unable to get Lua interface type");
+    m_interface = interfaceType["new"](interfaceType);
     CHECK(m_interface.valid(), "Unable to get Lua interface instance");
 }
 
 {*interface.name*}::~{*interface.name*}()
-{}
+{
+    std::lock_guard<std::mutex> lock(m_lock);
+    sol::function del = m_interface["%del"];
+    CHECK(del.valid(), "Unable to get Lua function object: " + std::string("{*interface.name*}::'%del'"));
+    del(m_interface);
+}
 
 {%for _, func  in ipairs(interface.functions) do%}
 {*func.output.lang.name*} {*interface.name*}::{*func.name*}({%for i = 1, #func.input do%}{*func.input[i].type.lang.name*} {*func.input[i].name*}{%if i ~= #func.input then%}, {%end%} {%end%})
 {
     std::lock_guard<std::mutex> lock(m_lock);
     sol::function func = m_interface["{*func.name*}"];
-    CHECK(func.valid(), "Unable to get Lua function object");
+    CHECK(func.valid(), "Unable to get Lua function object: " + std::string("{*interface.name*}::{*func.name*}"));
 {-raw-}    {-raw-}{%if func.output ~= none_t then%}{-raw-}return {-raw-}{%if func.output.lang.from_lua then%}{*func.output.lang.from_lua*}{%end%}{%end%}(func({%for i = 1, #func.input do%}{%if func.input[i].type.lang.to_lua then%}{*func.input[i].type.lang.to_lua*}(*m_sdkState, {%else%}({%end%}{*func.input[i].name*}){%if i ~= #func.input then%},{%end%}{%end%}));
 }
 
@@ -216,21 +234,7 @@ void Initialize(const std::string& pathToModule)
 {%if #slave_interfaces > 0 then%}
     SdkState sdkState = CreateNewState();
     CHECK(sdkState.get() != nullptr, "Unable to create new state");
-    size_t conn_size = (*sdkState)["connectors"]["size"]();
-    for (size_t i = 0; i < conn_size; i++)
-    {
-        if (i != 0)
-        {
-            sdkState = CreateNewState();
-            CHECK(sdkState.get() != nullptr, "Unable to create new state");
-        }
-        g_serverThreads.push_back(std::make_shared<std::thread>(
-                [=](SdkState state) {
-                    sol::table connector = (*state)["connectors"][i + 1];
-                    CHECK(connector.valid(), "Unable to get a connector #" + std::to_string(i));
-                    connector["run_slave"](connector);
-                }, sdkState));
-    }
+    (*sdkState)["system"]["run"]();
 {%end%}
 }
 
@@ -238,8 +242,8 @@ void Uninitialize()
 {
     sol::state state;
     state.open_libraries(sol::lib::base, sol::lib::package, sol::lib::os, sol::lib::string);
-    state.script("package.path = package.path .. ';' .. '" + g_sdkPath + "' .. '/externals/effil/?.lua'");
-    state.script("package.cpath = package.cpath .. ';' .. '" + g_sdkPath + "' .. '/externals/effil/?.so'");
+    state.script("package.path = package.path .. ';' .. '" + g_sdkPath + "' .. '/effil/?.lua'");
+    state.script("package.cpath = package.cpath .. ';' .. '" + g_sdkPath + "' .. '/effil/?.so'");
     state.script("require 'effil'.G.shutdown = true");
     for (auto thread: g_serverThreads)
     {
@@ -252,16 +256,13 @@ void Uninitialize()
 ]]
 
 return function(props)
-    local structs = GetStructures()
-    local master_interfaces, slave_interfaces = GetInterfaces()
-
     local config = {
         target = target,
         module_name = props.module_name,
         module_path = props.module_path,
-        structs = structs,
-        master_interfaces = master_interfaces,
-        slave_interfaces = slave_interfaces
+        structs = system.structures,
+        master_interfaces = system.master_interfaces,
+        slave_interfaces = system.slave_interfaces
     }
     local head_body = generate(header_template, config)
     local src_body = generate(source_template, config)
