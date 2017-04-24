@@ -234,7 +234,7 @@ void Initialize(const std::string& pathToModule)
 {%if #slave_interfaces > 0 then%}
     SdkState sdkState = CreateNewState();
     CHECK(sdkState.get() != nullptr, "Unable to create new state");
-    (*sdkState)["system"]["run"]();
+    (*sdkState)["system"]["run_connectors"]();
 {%end%}
 }
 

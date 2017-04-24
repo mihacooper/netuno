@@ -3,9 +3,9 @@ local socket = require "socket"
 
 local interface_instances = {}
 
-iface_factory = {}
+plain_factory = {}
 
-function iface_factory:new(iface_name)
+function plain_factory:new(iface_name)
     iface_t = _G[iface_name]
     if iface_t == nil then
         return false, "Unknown interface type: " .. iface_name
@@ -19,15 +19,15 @@ function iface_factory:new(iface_name)
     return true, id
 end
 
-function iface_factory:get(id)
+function plain_factory:get(id)
     return interface_instances[id]
 end
 
-function iface_factory:del(id)
+function plain_factory:del(id)
     interface_instances[id] = nil
 end
 
-function iface_factory:get_id(iface)
+function plain_factory:get_id(iface)
     local str = tostring(iface.server)
     local _, id_pos = string.find(str, "0x")
     return string.sub(str, id_pos + 1)
@@ -68,8 +68,8 @@ function json_protocol.new_master(connector)
     return protocol
 end
 
-function json_protocol.new_slave(factory)
-    local protocol = { factory = factory }
+function json_protocol.new_slave(factory_name)
+    local protocol = { factory = system.factories[factory_name] }
 
     function protocol:process(data)
         local processor = {
@@ -142,12 +142,14 @@ function tcp_connector(host, port)
         return conn
     end
 
-    function connector:set_protocol(protocol)
-        self.protocol = protocol.new_slave(iface_factory)
+    function connector:set_context(protocol, factory)
+        self.protocol_name = protocol
+        self.factory_name = factory
     end
 
     function connector:run_server_thread(socket_fd)
         log_dbg("Server thread of 'tcp_connector' has started with %s", socket_fd)
+        self.protocol = system.protocols[self.protocol_name].new_slave(self.factory_name)
         local exit_thread = false
         local connection = assert(socket.connect(self.host, self.port + 1))
         connection:close()
@@ -179,22 +181,25 @@ function tcp_connector(host, port)
         assert(server:setoption("reuseaddr", true))
         assert(server:setoption("linger", { on = false, timeout = 0}))
         server:settimeout(0)
-        effil.G['system']['tcp_connector'] = effil.channel()
 
         while not effil.G.shutdown do
             dummy_server:accept() -- to trash
             local new_conn = server:accept()
             if new_conn and new_conn:getfd() > 0 then
                 log_dbg("Server 'tcp_connector' got a new connection", new_conn:getfd())
-                effil.G['system']['tcp_connector']:push(self.host, self.port, new_conn:getfd())
-
-                run_new_state(function()
-                        local host, port, fd = effil.G['system']['tcp_connector']:pop()
+                local switch_thread = function(host, port, fd, protocol, factory)
+                    local exchange = system.unique_channel()
+                    if host or port or fd then
+                        exchange:push(host, port, fd, protocol, factory)
+                    else
+                        local host, port, fd, protocol, factory = exchange:pop()
                         local conn = tcp_connector(host, port)
-                        conn:set_protocol(default_protocol)
+                        conn:set_context(protocol, factory)
                         conn:run_server_thread(fd)
                     end
-                )
+                end
+                switch_thread(self.host, self.port, new_conn:getfd(), self.protocol_name, self.factory_name)
+                run_new_state(switch_thread)
                 new_conn:setfd(-1)
             end
         end

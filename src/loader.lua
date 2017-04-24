@@ -9,8 +9,26 @@ require "string"
 require "helpers"
 effil = require "effil"
 
+system = {}
+
 if effil.G['system'] ==  nil then
     effil.G['system'] = {}
+end
+
+if effil.G['system']['exchange'] ==  nil then
+    effil.G['system']['exchange'] = {}
+end
+
+function system.unique_channel(capacity)
+    local info = debug.getinfo(2)
+    local name = info.source .. ":" .. info.currentline
+    if effil.G['system']['exchange'][name] == nil then
+        log_dbg("Create new unique channel '" .. name .. "'")
+        effil.G['system']['exchange'][name] = effil.channel(capacity)
+    else
+        log_dbg("Return existent unique channel '" .. name .. "'")
+    end
+    return effil.G['system']['exchange'][name]
 end
 
 return function(module_name, language, target)
