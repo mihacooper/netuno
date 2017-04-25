@@ -23,18 +23,18 @@ done
 
 export ROOT_DIR="$(cd $(dirname $0); pwd)"
 export WORK_DIR="$ROOT_DIR/work_dir"
-export SDK_DIR="$ROOT_DIR/sdk"
-export LUA_RPC_SDK=$SDK_DIR
+export SDK_DIR="$ROOT_DIR/../src"
+export LUA_RPC_SDK="$ROOT_DIR/.."
 
 if ! [ -d $WORK_DIR ]; then
     mkdir $WORK_DIR
 fi
 
-if ! [ -d $SDK_DIR ]; then
-    mkdir $SDK_DIR
-fi
+#if ! [ -d $SDK_DIR ]; then
+#    mkdir $SDK_DIR
+#fi
 
-$USE_INSTALL && sh $ROOT_DIR/../install.sh $SDK_DIR
+#$USE_INSTALL && sh $ROOT_DIR/../install.sh $SDK_DIR
 
 export CLR_RED='\033[0;31m'
 export CLR_GREEN='\033[0;32m'
@@ -75,7 +75,7 @@ function testf_compile()
 {
     binary_name=$1; shift
     testf_assert g++ -pthread -std=c++14 $@ \
-        -I/usr/include/lua5.2 -I$SDK_DIR -I$WORK_DIR \
+        -I/usr/include/lua5.2 -I$SDK_DIR/lang-cpp/sol2/single/sol -I$WORK_DIR \
         -llua5.2 -o $binary_name
 }
 
@@ -83,7 +83,7 @@ function testf_generate_cpp()
 {
     MODULE_NAME=$1
     cp $TEST_DIR/${MODULE_NAME}.lua .
-    lua $SDK_DIR/rpc.lua "${MODULE_NAME}.lua" cpp $2
+    lua $SDK_DIR/rpc.lua generate "${MODULE_NAME}.lua" cpp $2
     testf_assert [ -f "${MODULE_NAME}.cpp" ]
     testf_assert [ -f "${MODULE_NAME}.hpp" ]
 }

@@ -16,3 +16,6 @@
 [submodule "src/json"]
 	path = externals/json
 	url = https://github.com/craigmj/json4lua
+[submodule "externals/argparse"]
+	path = externals/argparse
+	url = https://github.com/mpeterv/argparse

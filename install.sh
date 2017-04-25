@@ -1,8 +1,9 @@
 #!/bin/sh
-
 set -e
 
 ROOT_DIR="$(cd $(dirname $0); pwd)"
+
+<<"COMMENT"
 WORK_DIR=$ROOT_DIR/.build_dir
 LOG_FILE=$WORK_DIR/.log
 HELP_MSG="install.sh <dst directory>"
@@ -54,14 +55,18 @@ echo "" > $LOG_FILE
 LAST_LOG_LINE=0
 log_success "#1 Building Lua socket"
 {
+COMMENT
+
     cd $ROOT_DIR/externals/luasocket
     make -j4 LUAV=5.2 LUAINC_linux=/usr/include/lua5.2 &&
     make install LUAV=5.2 \
         LUAINC_linux=/usr/include/lua5.2 \
-        DESTDIR=$WORK_DIR/socket \
+        DESTDIR=$ROOT_DIR/externals/luasocket_build \
         CDIR=lib \
         LDIR=modules \
         prefix=""
+
+<<"COMMENT"
 } >> $LOG_FILE 2>&1 || log_print_error
 
 LAST_LOG_LINE=$(log_lines)
@@ -69,16 +74,21 @@ log_success "#2 Building Effil"
 {
     mkdir $WORK_DIR/effil
     cd $WORK_DIR/effil
-    cmake $ROOT_DIR/externals/effil -DCMAKE_BUILD_TYPE=Release &&
+COMMENT
+
+    mkdir $ROOT_DIR/externals/effil/build || true
+    cd $ROOT_DIR/externals/effil/build
+    cmake .. -DCMAKE_BUILD_TYPE=Release &&
     make -j4 && make install
+
+<<"COMMENT"
 } >> $LOG_FILE 2>&1 || log_print_error
 
 LAST_LOG_LINE=$(log_lines)
 log_success "#3 Bind lua sources"
 {
     cd $ROOT_DIR
-    lua $ROOT_DIR/externals/luacc/bin/luacc.lua \
-        -o $DEST_DIR/loader.lua \
+    lua $ROOT_DIR/externals/luacc/bin/luacc.lua -o $DEST_DIR/loader.lua \
         -i $ROOT_DIR -i $ROOT_DIR/src -i $ROOT_DIR/externals \
         -i $WORK_DIR/socket/modules -i $ROOT_DIR/externals/json/json \
         loader helpers dsl networking \
@@ -93,9 +103,12 @@ log_success "#4 Copy to destination directory"
     mkdir $DEST_DIR/sol2 2>/dev/null
     mkdir $DEST_DIR/socket 2>/dev/null
     mkdir $DEST_DIR/effil 2> /dev/null
+    cp $ROOT_DIR/src/storage.lua $DEST_DIR/ &&
     cp $ROOT_DIR/src/rpc.lua $DEST_DIR/ &&
+    cp $ROOT_DIR/externals/argparse/src/argparse.lua $DEST_DIR/ &&
     cp $ROOT_DIR/src/lang-cpp/sol2/single/sol/sol.hpp $DEST_DIR/sol2 &&
     cp $WORK_DIR/effil/libeffil.so $DEST_DIR/effil/ &&
     cp $WORK_DIR/effil/effil.lua $DEST_DIR/effil/ &&
     cp -r $WORK_DIR/socket/lib/socket/* $DEST_DIR/socket
 } >> $LOG_FILE 2>&1 || log_print_error
+COMMENT

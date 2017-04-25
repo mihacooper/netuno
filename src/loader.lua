@@ -1,8 +1,16 @@
-local root_dir = os.getenv("LUA_RPC_SDK") or "."
-package.cpath = package.cpath .. ";" .. root_dir .. "/effil/?.so"
-package.cpath = package.cpath .. ";" .. root_dir .. "/?.so"
-package.path = package.path .. ";" .. root_dir .. "/effil/?.lua"
+local root_dir = os.getenv("LUA_RPC_SDK") or ".."
+--
 package.path = package.path .. ";" .. root_dir .. "/?.lua"
+package.path = package.path .. ";" .. root_dir .. "/src/?.lua"
+package.path = package.path .. ";" .. root_dir .. "/externals/?.lua"
+package.path = package.path .. ";" .. root_dir .. "/externals/effil/build/?.lua"
+package.path = package.path .. ";" .. root_dir .. "/externals/luasocket_build/modules/?.lua"
+package.path = package.path .. ";" .. root_dir .. "/externals/json/json/?.lua"
+--
+package.cpath = package.cpath .. ";" .. root_dir .. "/?.so"
+package.cpath = package.cpath .. ";" .. root_dir .. "/externals/effil/build/?.so"
+package.cpath = package.cpath .. ";" .. root_dir .. "/externals/luasocket_build/lib/?.so"
+--
 
 require "os"
 require "string"

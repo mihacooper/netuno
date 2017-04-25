@@ -21,7 +21,7 @@ local header_template =
 [[
 #pragma once
 #include "lua.hpp"
-#include "sol2/sol.hpp"
+#include "sol.hpp"
 #include "atomic"
 #include "thread"
 #include "mutex"
@@ -159,8 +159,8 @@ SdkState CreateNewState()
     SdkState sdkState = std::make_shared<sol::state>();
     sdkState->open_libraries();
 
-    sdkState->script("package.path = package.path .. ';' .. '" + g_sdkPath + "' .. '/?.lua'");
-    const std::string pathToLoader = g_sdkPath + std::string("/loader.lua");
+    sdkState->script("package.path = package.path .. ';' .. '" + g_sdkPath + "' .. '/src/?.lua'");
+    const std::string pathToLoader = g_sdkPath + std::string("/src/loader.lua");
     sol::function loadInterfaceFunc = sdkState->script_file(pathToLoader);
     CHECK(loadInterfaceFunc.valid(), "Unable to load loader");
     loadInterfaceFunc(g_pathToModule.empty() ? "{*module_path*}" : g_pathToModule, "cpp", "{*target*}");
@@ -242,8 +242,8 @@ void Uninitialize()
 {
     sol::state state;
     state.open_libraries(sol::lib::base, sol::lib::package, sol::lib::os, sol::lib::string);
-    state.script("package.path = package.path .. ';' .. '" + g_sdkPath + "' .. '/effil/?.lua'");
-    state.script("package.cpath = package.cpath .. ';' .. '" + g_sdkPath + "' .. '/effil/?.so'");
+    state.script("package.path = package.path .. ';' .. '" + g_sdkPath + "' .. '/externals/effil/build/?.lua'");
+    state.script("package.cpath = package.cpath .. ';' .. '" + g_sdkPath + "' .. '/externals/effil/build/?.so'");
     state.script("require 'effil'.G.shutdown = true");
     for (auto thread: g_serverThreads)
     {
