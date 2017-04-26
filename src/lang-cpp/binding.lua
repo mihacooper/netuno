@@ -104,6 +104,8 @@ namespace {
 std::vector<std::shared_ptr<std::thread>> g_serverThreads;
 std::string g_pathToModule = ".";
 std::string g_sdkPath = ".";
+std::mutex g_lock;
+SdkState g_sdkState;
 
 {%for _, str  in pairs(structs) do%}
 static sol::object {*str.name*}ToLuaObject(sol::state_view state, {*str.name*} str)
@@ -154,12 +156,35 @@ sol::object {*interface.name*}Creator(const sol::this_state& state)
 
 void RunNewState(sol::this_state, const sol::function&);
 
+sol::object RequireComponent(sol::this_state thisState, const std::string& cmpName)
+{
+    sol::state_view state(thisState);
+    std::lock_guard<std::mutex> lock(g_lock);
+    sol::table cstorage = (*g_sdkState)["cstorage"];
+    if(!cstorage["check_component"](cstorage, cmpName))
+        throw std::runtime_error("Requested component '" + cmpName + "' not found");
+    const std::string scheme = cstorage["get_scheme"](cstorage, cmpName);
+    if (scheme == "instate")
+    {
+        sol::table loader_context = cstorage["load_component"](cstorage, cmpName);
+        const std::string& raw_loader = loader_context["loader"];
+        const std::string& raw_comp_data = loader_context["component"];
+        const sol::function loader = state["loadstring"](raw_loader);
+        return loader(cmpName, raw_comp_data);
+    }
+    else
+    {
+        throw std::runtime_error("Unknown integration scheme " + scheme);
+    }
+}
+
 SdkState CreateNewState()
 {
     SdkState sdkState = std::make_shared<sol::state>();
     sdkState->open_libraries();
 
     sdkState->script("package.path = package.path .. ';' .. '" + g_sdkPath + "' .. '/src/?.lua'");
+    (*sdkState)["require_c"] = &RequireComponent;
     const std::string pathToLoader = g_sdkPath + std::string("/src/loader.lua");
     sol::function loadInterfaceFunc = sdkState->script_file(pathToLoader);
     CHECK(loadInterfaceFunc.valid(), "Unable to load loader");
@@ -176,7 +201,7 @@ SdkState CreateNewState()
         sol::stack::push(*sdkState, type);
         sol::stack::pop<sol::object>(*sdkState);
     }
-    (*sdkState)["{*interface.name*}"]["server"] = &{*interface.name*}Creator;
+    (*sdkState)["server_{*interface.name*}"] = &{*interface.name*}Creator;
 {%end%}
     (*sdkState)["run_new_state"] = std::function<void(sol::this_state, const sol::function&)>(
                 std::bind(&RunNewState, std::placeholders::_1, std::placeholders::_2));
@@ -231,6 +256,12 @@ void Initialize(const std::string& pathToModule)
     const char* cPath = getenv("LUA_RPC_SDK");
     g_sdkPath = cPath ? cPath : ".";
     g_pathToModule = pathToModule;
+    g_sdkState = CreateNewState();
+    const std::string pathToCStorage = g_sdkPath + std::string("/src/cstorage.lua");
+    g_sdkState->script_file(pathToCStorage);
+    sol::table cstorage = (*g_sdkState)["cstorage"];
+    cstorage["verbose"] = true;
+    cstorage["load"](cstorage);
 {%if #slave_interfaces > 0 then%}
     SdkState sdkState = CreateNewState();
     CHECK(sdkState.get() != nullptr, "Unable to create new state");

@@ -15,6 +15,7 @@ class "SampleInterface"
     func "MyFunction3": none_t(int_t "param1");
     func "MyFunction4": str_t();
     func "FinishTest": none_t();
+    factory = "plain_factory";
 }
 
 if target == "client" then

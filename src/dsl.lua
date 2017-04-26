@@ -307,9 +307,9 @@ function system.register_target(masters, slaves)
         end
     end
     for _, slave in ipairs(slaves) do
-        local slave_connector = slave.connector or "default_connector"
-        local slave_protocol  = slave.protocol  or "default_protocol"
-        local slave_factory   = slave.factory   or "default_factory"
+        local slave_connector = slave.flags.connector or "default_connector"
+        local slave_protocol  = slave.flags.protocol  or "default_protocol"
+        local slave_factory   = slave.flags.factory   or "default_factory"
         add_connector(slave_connector, slave_protocol, slave_factory)
         for _, func in ipairs(slave.functions) do
             add_connector(

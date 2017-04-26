@@ -3,8 +3,7 @@ local socket = require "socket"
 
 local interface_instances = {}
 
-plain_factory = {}
-
+--[[
 function plain_factory:new(iface_name)
     iface_t = _G[iface_name]
     if iface_t == nil then
@@ -32,14 +31,17 @@ function plain_factory:get_id(iface)
     local _, id_pos = string.find(str, "0x")
     return string.sub(str, id_pos + 1)
 end
+]]
 
 json_protocol = {}
 
 function json_protocol.new_master(connector)
     assert(connector ~= nil)
+    local pp = require_c("json_protocol_encode")
     local protocol = { connector = connector }
 
     function protocol:request_new(iface_name)
+        pp:request_new(iface_name)
         assert(type(iface_name) == "string")
         local response = self.connector:send_with_return(encode({ request = "new", interface = iface_name}))
         local response = decode(response)
@@ -53,6 +55,7 @@ function json_protocol.new_master(connector)
     end
 
     function protocol:request_call(func, ...)
+        pp:request_call(func, ...)
         local data_to_send = { iid = self.iid, request = "call", method = func.type.name, args = {...} }
         if func.type.output == none_t then
             self.connector:send(encode(data_to_send))
@@ -62,6 +65,7 @@ function json_protocol.new_master(connector)
     end
 
     function protocol:request_del()
+        pp:request_del()
         self.connector:send(encode { iid = self.iid, request = "close" })
     end
 
@@ -69,9 +73,11 @@ function json_protocol.new_master(connector)
 end
 
 function json_protocol.new_slave(factory_name)
-    local protocol = { factory = system.factories[factory_name] }
+    local protocol = { factory = require_c(factory_name) }
+    local pp = require_c "json_protocol_decode"
 
     function protocol:process(data)
+        pp:process(data)
         local processor = {
             new = function(data)
                 local status, id = self.factory:new(data.interface)

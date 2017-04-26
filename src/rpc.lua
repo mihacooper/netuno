@@ -87,15 +87,13 @@ elseif args.delete then
     cstorage:save()
 elseif args.list then
     cstorage:load()
-    _, plain_factory = cstorage:load_component("plain_factory")
-    plain_factory:get()
     local storage = cstorage:data()
     print("------------")
     for cmp_name, cmp in pairs(storage.components) do
         print(cmp_name)
         print("\ttype:    ", cmp.type)
         print("\tversion: ", cmp.version)
-        print("\tpath:    ", "components/" .. cmp.path)
+        print("\tpath:    ", "components/" .. cmp.module_path)
         print("\tmethods: ", table.concat(cmp.methods, ", "))
         print("\tfields:  ", dump_table(cmp.fields))
     print("------------")

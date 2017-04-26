@@ -1,9 +1,10 @@
-module       = "plain_factory";
-dependencies = {};
+module_path = "plain_factory";
+submodules  = {};
 
 component {
-    name         = "plain_factory";
-    type         = "custom";
-    methods      = {"new", "get", "del"};
-    fields       = { };
+    name    = "plain_factory";
+    type    = "custom";
+    scheme  = "instate";
+    methods = {"new", "get", "del"};
+    fields  = { };
 }
