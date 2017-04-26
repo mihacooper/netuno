@@ -1,5 +1,8 @@
 DEBUG = true
 
+package.path = package.path .. ";" .. LUA_RPC_SDK .. "/externals/?.lua"
+package.path = package.path .. ";" .. LUA_RPC_SDK .. "/externals/json/json/?.lua"
+
 require 'string'
 local json = require "json"
 local templates = require "template.lib.resty.template"
@@ -179,4 +182,20 @@ function table.show(t, name, indent)
    cart, autoref = "", ""
    addtocart(t, name, indent)
    return cart .. autoref
+end
+
+function dump_table(t)
+    if type(t) == "number" or type(t) == "bool" then
+        return tostring(t)
+    elseif type(t) == "string" then
+        return "'" .. t .. "'"
+    elseif type(t) == "table" then
+        local ret = "{"
+        for k, v in pairs(t) do
+            ret = ret .. "[" .. dump_table(k) .. "]=" .. dump_table(v) .. ","
+        end
+        return ret .. "}"
+    else
+        error("Unable to dump type: " .. type(t))
+    end
 end

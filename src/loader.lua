@@ -1,15 +1,15 @@
-local root_dir = os.getenv("LUA_RPC_SDK") or ".."
+if LUA_RPC_SDK == nil then
+    LUA_RPC_SDK = os.getenv("LUA_RPC_SDK") or ".."
+end
 --
-package.path = package.path .. ";" .. root_dir .. "/?.lua"
-package.path = package.path .. ";" .. root_dir .. "/src/?.lua"
-package.path = package.path .. ";" .. root_dir .. "/externals/?.lua"
-package.path = package.path .. ";" .. root_dir .. "/externals/effil/build/?.lua"
-package.path = package.path .. ";" .. root_dir .. "/externals/luasocket_build/modules/?.lua"
-package.path = package.path .. ";" .. root_dir .. "/externals/json/json/?.lua"
+package.path = package.path .. ";" .. LUA_RPC_SDK .. "/?.lua"
+package.path = package.path .. ";" .. LUA_RPC_SDK .. "/src/?.lua"
+package.path = package.path .. ";" .. LUA_RPC_SDK .. "/externals/effil/build/?.lua"
+package.path = package.path .. ";" .. LUA_RPC_SDK .. "/externals/luasocket_build/modules/?.lua"
 --
-package.cpath = package.cpath .. ";" .. root_dir .. "/?.so"
-package.cpath = package.cpath .. ";" .. root_dir .. "/externals/effil/build/?.so"
-package.cpath = package.cpath .. ";" .. root_dir .. "/externals/luasocket_build/lib/?.so"
+package.cpath = package.cpath .. ";" .. LUA_RPC_SDK .. "/?.so"
+package.cpath = package.cpath .. ";" .. LUA_RPC_SDK .. "/externals/effil/build/?.so"
+package.cpath = package.cpath .. ";" .. LUA_RPC_SDK .. "/externals/luasocket_build/lib/?.so"
 --
 
 require "os"
