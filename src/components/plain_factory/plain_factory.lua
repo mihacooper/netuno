@@ -1,13 +1,11 @@
 plain_factory = {}
 
+local interface_instances = {}
+
 function plain_factory:new(iface_name)
-    iface_t = "server_" .. iface_name
-    if iface_t == nil then
-        return false, "Unknown interface type: " .. iface_name
-    end
-    local status, iface = pcall(iface_t)
-    if not status then
-        return false, iface
+    local iface = require_c("interface_" .. iface_name)
+    if not iface then
+        return false, "Unknown interface iface_name"
     end
     local id = self:get_id(iface)
     interface_instances[id] = iface

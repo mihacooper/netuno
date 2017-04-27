@@ -91,6 +91,7 @@ local source_template =
 #include <stdlib.h>
 #include <memory>
 #include <functional>
+#include <map>
 
 namespace rpc_sdk
 {
@@ -144,7 +145,7 @@ public:
 {%end%}
 
 {%for _, interface  in pairs(slave_interfaces) do%}
-sol::object {*interface.name*}Creator(const sol::this_state& state)
+sol::object {*interface.name*}Creator(const sol::state_view& state)
 {
     auto ptr = createInterface<{*interface.name*}>();
     if (ptr.get() == nullptr)
@@ -159,18 +160,44 @@ void RunNewState(sol::this_state, const sol::function&);
 sol::object RequireComponent(sol::this_state thisState, const std::string& cmpName)
 {
     sol::state_view state(thisState);
-    std::lock_guard<std::mutex> lock(g_lock);
-    sol::table cstorage = (*g_sdkState)["cstorage"];
-    if(!cstorage["check_component"](cstorage, cmpName))
-        throw std::runtime_error("Requested component '" + cmpName + "' not found");
-    const std::string scheme = cstorage["get_scheme"](cstorage, cmpName);
+    std::string scheme, type;
+    {
+        std::lock_guard<std::mutex> lock(g_lock);
+        sol::table cstorage = (*g_sdkState)["cstorage"];
+        if(!cstorage["check_component"](cstorage, cmpName))
+            throw std::runtime_error("Requested component '" + cmpName + "' not found");
+        scheme = cstorage["get_scheme"](cstorage, cmpName);
+        type = cstorage["get_type"](cstorage, cmpName);
+    }
+
     if (scheme == "instate")
     {
-        sol::table loader_context = cstorage["load_component"](cstorage, cmpName);
-        const std::string& raw_loader = loader_context["loader"];
-        const std::string& raw_comp_data = loader_context["component"];
-        const sol::function loader = state["loadstring"](raw_loader);
-        return loader(cmpName, raw_comp_data);
+        if (type == "system")
+        {
+            static std::map<std::string, sol::object(*)(const sol::state_view&)> sysCreators
+            {
+{%for i = 1, #slave_interfaces do%}
+                std::make_pair("interface_{*slave_interfaces[i].name*}", &{*slave_interfaces[i].name*}Creator){%if i ~= #slave_interfaces then%},{%end%}
+{%end%}
+            };
+            auto creator = sysCreators.find(cmpName);
+            if (creator == sysCreators.end())
+                throw std::runtime_error("System component '" + cmpName + "' not found");
+            return creator->second(state);
+        }
+        else
+        {
+            std::string raw_loader, raw_comp_data;
+            {
+                std::lock_guard<std::mutex> lock(g_lock);
+                sol::table cstorage = (*g_sdkState)["cstorage"];
+                sol::table loader_context = cstorage["load_component"](cstorage, cmpName);
+                raw_loader = loader_context["loader"];
+                raw_comp_data = loader_context["component"];
+            }
+            const sol::function loader = state["loadstring"](raw_loader);
+            return loader(cmpName, raw_comp_data);
+        }
     }
     else
     {
@@ -201,7 +228,6 @@ SdkState CreateNewState()
         sol::stack::push(*sdkState, type);
         sol::stack::pop<sol::object>(*sdkState);
     }
-    (*sdkState)["server_{*interface.name*}"] = &{*interface.name*}Creator;
 {%end%}
     (*sdkState)["run_new_state"] = std::function<void(sol::this_state, const sol::function&)>(
                 std::bind(&RunNewState, std::placeholders::_1, std::placeholders::_2));
@@ -262,6 +288,22 @@ void Initialize(const std::string& pathToModule)
     sol::table cstorage = (*g_sdkState)["cstorage"];
     cstorage["verbose"] = true;
     cstorage["load"](cstorage);
+{%for _, interface  in pairs(slave_interfaces) do%}
+    {
+        sol::table ifaceMethods = g_sdkState->create_table_with(
+        {%for i = 1, #interface.functions do%}
+            "{*i*}", "{*interface.functions[i].name*}"{%if i ~= #interface.functions then%},{%end%}
+        {%end%}
+        );
+        sol::table manifest = g_sdkState->create_table_with(
+            "name", "interface_{*interface.name*}",
+            "type", "system",
+            "methods", ifaceMethods,
+            "scheme", "instate"
+        );
+        cstorage["registrate_component"](cstorage, manifest);
+    }
+{%end%}
 {%if #slave_interfaces > 0 then%}
     SdkState sdkState = CreateNewState();
     CHECK(sdkState.get() != nullptr, "Unable to create new state");

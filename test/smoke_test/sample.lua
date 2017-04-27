@@ -6,7 +6,6 @@ struct "SampleStructure"
 
 default_connector = tcp_connector("127.0.0.1", 9898)
 default_protocol  = json_protocol
-default_factory   = plain_factory
 
 class "SampleInterface"
 {

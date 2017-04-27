@@ -2,7 +2,13 @@ require "helpers"
 
 cstorage = {
     verbose = false,
-    component_types = { connector = true, factory = true, protocol = true, custom = true }
+    component_types = {
+        connector = true,
+        factory   = true,
+        protocol  = true,
+        custom    = true,
+        system    = true
+    }
 }
 
 if LUA_RPC_SDK == nil then
@@ -129,15 +135,22 @@ function cstorage:registrate_component(manifest, cmp_str)
         log_err("Component storage with name '%s' already exists", manifest.name)
     end
 
-    
-    if self:check_component(cmanifest.name) then
+    if self:check_component(manifest.name) then
         log_err("Component with name '%s' already exists", manifest.name)
     end
     if not self:check_type(manifest.type) then
         log_err("Invalid type of component '%s'", manifest.type)
     end
-    info("Register component '%s'", manifest.name)
-    storage.components[manifest.name] = string.dump(cmp_str)
+    log_dbg("Register component '%s'", manifest.name)
+    if manifest.type ~= "system" then
+        storage.storages[manifest.name] = {
+            module_path = manifest.name,
+            submodules = {},
+            data = string.dump(cmp_str)
+        }
+        manifest.module_path = manifest.name
+    end
+    storage.components[manifest.name] = manifest
 end
 
 function cstorage:remove_component(cmp_str)
@@ -173,6 +186,10 @@ end
 
 function cstorage:get_scheme(cmp_name)
     return storage.components[cmp_name].scheme
+end
+
+function cstorage:get_imports(cmp_name)
+    return storage.components[cmp_name].imports or {}
 end
 
 function cstorage:load_component(cmp_name)
@@ -213,7 +230,6 @@ function cstorage:load_component(cmp_name)
               sqrt = math.sqrt, tan = math.tan, tanh = math.tanh },
             os = { clock = os.clock, difftime = os.difftime, time = os.time },
         }
-
         local cmp_loader = loadstring(raw_data, nil, nil, sandbox_env)
         if not cmp_loader then
             error("Unable to load component data")

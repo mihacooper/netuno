@@ -15,12 +15,14 @@ testf_log "Run server"
 ./sample_server &
 SERVER_PID=$!
 testf_assert [ $SERVER_PID -gt 0 ]
+testf_log "Server PID = $SERVER_PID"
 sleep 1
 
 testf_log "Run client"
 ./sample_client &
 CLIENT_PID=$!
 testf_assert [ $CLIENT_PID -gt 0 ]
+testf_log "Client PID = $CLIENT_PID"
 
 testf_log "Wait for client comletion"
 testf_assert wait $CLIENT_PID

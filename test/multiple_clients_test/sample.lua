@@ -6,6 +6,8 @@ class "Incrementer"
 {
     func "Increment": none_t(int_t "value");
     func "Result": int_t();
+
+    factory = "plain_factory";
 }
 
 if target == "client" then

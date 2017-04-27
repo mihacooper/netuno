@@ -1,8 +1,6 @@
 require "helpers"
 local socket = require "socket"
 
-local interface_instances = {}
-
 --[[
 function plain_factory:new(iface_name)
     iface_t = _G[iface_name]
@@ -82,6 +80,7 @@ function json_protocol.new_slave(factory_name)
             new = function(data)
                 local status, id = self.factory:new(data.interface)
                 if not status then
+                    log_dbg("Factory return error: %s", id)
                     return false, { status = id }
                 end
                 return false, { status = "ok", iid = id }
@@ -95,7 +94,7 @@ function json_protocol.new_slave(factory_name)
                 if method == nil then
                     return false, { status = "error", msg = "unknown method request: " .. tostring(data.method)}
                 end
-                return false, method(unpack(data.args))
+                return false, method(iface, unpack(data.args))
             end,
             close = function(data)
                 self.factory:del(data.iid)
