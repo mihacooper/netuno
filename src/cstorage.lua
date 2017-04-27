@@ -192,6 +192,10 @@ function cstorage:get_imports(cmp_name)
     return storage.components[cmp_name].imports or {}
 end
 
+function cstorage:get_methods(cmp_name)
+    return storage.components[cmp_name].methods or {}
+end
+
 function cstorage:load_component(cmp_name)
     local cmp = storage.components[cmp_name]
     local raw_comp_data = storage.storages[cmp.module_path].data

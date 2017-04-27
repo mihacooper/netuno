@@ -4,7 +4,7 @@ submodules  = {};
 component {
     name    = "plain_factory";
     type    = "custom";
-    scheme  = "instate";
+    scheme  = "outstate";
     methods = {"new", "get", "del"};
     fields  = { };
 }
