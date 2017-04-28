@@ -103,6 +103,7 @@ namespace rpc_sdk
 namespace {
 
 class OutstateAdapter;
+SdkState CreateNewState();
 
 typedef std::shared_ptr<OutstateAdapter> OutstateAdapterPtr;
 
@@ -115,8 +116,19 @@ std::mutex g_stateLock;
 SdkState g_sdkState;
 
 // Global storage
+struct OutstateContext
+{
+    std::mutex lock;
+    SdkState   state;
+    size_t     storageId;
+
+    OutstateContext() : state(CreateNewState()) {}
+};
+
+typedef std::shared_ptr<OutstateContext> OutstateContextPtr;
+
 std::mutex g_outstatesLock;
-std::map<std::string, OutstateAdapterPtr> g_outstates;
+std::vector<OutstateContextPtr> g_outstates;
 std::vector<std::shared_ptr<std::thread>> g_serverThreads;
 
 {%for _, str  in pairs(structs) do%}
@@ -168,31 +180,40 @@ sol::object {*interface.name*}Creator(const sol::state_view& state)
 
 void RunNewState(sol::this_state, const sol::function&);
 
-SdkState CreateNewState();
-
-class OutstateAdapter
+sol::object OutstateMethodCall(sol::this_state thisState, size_t id, const std::string& method, sol::variadic_args args)
 {
-public:
-    OutstateAdapter() : m_state(CreateNewState()) {}
-
-    sol::object MethodCall(const std::string& method, const sol::variadic_args& args)
+    sol::state_view state(thisState);
+    OutstateContextPtr componentContext;
     {
-        std::lock_guard<std::mutex> lock(m_lock);
-        return (*m_state)["component"][method](args);
+        std::lock_guard<std::mutex> lock(g_outstatesLock);
+        componentContext = g_outstates[id];
     }
 
-    SdkState GetState() { return m_state; }
-
-protected:
-    SdkState m_state;
-    std::mutex m_lock;
-};
+    sol::function putArgs = state.script("return function(...) require('effil').G.system.storage:get("
+        + std::to_string(componentContext->storageId) + ").input = {...} end");
+    putArgs(args);
+    {
+        std::lock_guard<std::mutex> lock(componentContext->lock);
+        sol::function caller = componentContext->state->script(
+            "return function(id, m) "
+            "   local share = require('effil').G.system.storage:get(id)"
+            "   local input = {} "
+            "   for k,v in ipairs(share.input) do input[k] = v end "
+            "   share.output = table.pack(component[m](component, unpack(input))) "
+            "end"
+        );
+        caller(componentContext->storageId, method);
+    }
+    sol::object ret = state.script("return require('effil').G.system.storage:get("
+        + std::to_string(componentContext->storageId) + ").output");
+    return ret;
+}
 
 sol::object RequireComponent(sol::this_state thisState, const std::string& cmpName)
 {
     sol::state_view state(thisState);
     std::string scheme, type;
-    //std::vector<std::string> methods;
+    std::vector<std::string> methods;
     {
         std::lock_guard<std::mutex> lock(g_stateLock);
         sol::table cstorage = (*g_sdkState)["cstorage"];
@@ -200,9 +221,9 @@ sol::object RequireComponent(sol::this_state thisState, const std::string& cmpNa
             throw std::runtime_error("Requested component '" + cmpName + "' not found");
         scheme = cstorage["get_scheme"](cstorage, cmpName);
         type = cstorage["get_type"](cstorage, cmpName);
-        //sol::table t_methods = cstorage["get_methods"](cstorage, cmpName);
-        //for(auto& m: t_methods)
-        //    methods.push_back(m.first);
+        sol::table t_methods = cstorage["get_methods"](cstorage, cmpName);
+        for(auto& m: t_methods)
+            methods.push_back(m.second.as<std::string>());
     }
 
     static std::map<std::string, sol::object(*)(const sol::state_view&)> sysCreators
@@ -236,39 +257,35 @@ sol::object RequireComponent(sol::this_state thisState, const std::string& cmpNa
         }
     };
 
-    printf(("~~~~~~~~~~ASDASD3" +cmpName+ "\n").c_str());
     if (scheme == "instate")
     {
-        printf("~~~~~~~~~~ASDASD4\n");
         return instate_loader(state);
     }
     else if (scheme == "outstate")
     {
-        printf("~~~~~~~~~~ASDASD1\n");
-        OutstateAdapterPtr adapter;
+        OutstateContextPtr context = std::make_shared<OutstateContext>();
+        (*context->state)["component"] = instate_loader(*context->state);
+        context->storageId = context->state->script("return require('effil').G.system.storage:new()");
+        int componentId = -1;
         {
             std::lock_guard<std::mutex> lock(g_outstatesLock);
-            if (g_outstates.find(cmpName) == g_outstates.end())
-            {
-                g_outstates[cmpName] = std::make_shared<OutstateAdapter>();
-                (*g_outstates[cmpName]->GetState())["component"] = instate_loader(*g_outstates[cmpName]->GetState());
-            }
-            adapter = g_outstates[cmpName];
+            g_outstates.push_back(context);
+            componentId = g_outstates.size() - 1;
         }
-        printf("~~~~~~~~~~ASDASD2\n");
 
         sol::table compTable = state.create_table();
-        //compTable["%%compontent"] = sol::make_object(state, adapter);
-        compTable[sol::meta_function::index] = state.script(
-            "return function(self, key) "
-            "    return function(self, ...) "
-            "       print(self, ' - ', ...) "
-            "    end "
-            "end"
-            //"        return rawget(self, '%%compontent'):method_call(...) "
-        );
-        //for (const std::string& method: methods)
-        //    compTable[method] = state.script("return function() " + method + " end");
+        for (const std::string& method: methods)
+        {
+            sol::function accesser = state.script(
+                "return function(self, ...) "
+                "   local res = system.outstate_call(" + std::to_string(componentId) + ", '" + method + "', ...) "
+                "   local ret = {} "
+                "   for _, v in ipairs(res) do table.insert(ret, v) end "
+                "   return unpack(ret) "
+                "end "
+            );
+            compTable[method] = accesser;
+        }
         return compTable;
     }
     else
@@ -289,11 +306,7 @@ SdkState CreateNewState()
     CHECK(loadInterfaceFunc.valid(), "Unable to load loader");
     loadInterfaceFunc(g_pathToModule.empty() ? "{*module_path*}" : g_pathToModule, "cpp", "{*target*}");
 
-    {
-        sol::usertype<OutstateAdapter> type("method_call", &OutstateAdapter::MethodCall);
-        sol::stack::push(*sdkState, type);
-        sol::stack::pop<sol::object>(*sdkState);
-    }
+    (*sdkState)["system"]["outstate_call"] = &OutstateMethodCall;
 
 {%for _, interface  in pairs(slave_interfaces) do%}
     {
@@ -377,7 +390,7 @@ void Initialize(const std::string& pathToModule)
             "name", "interface_{*interface.name*}",
             "type", "system",
             "methods", ifaceMethods,
-            "scheme", "instate"
+            "scheme", "outstate"
         );
         cstorage["registrate_component"](cstorage, manifest);
     }

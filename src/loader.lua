@@ -19,8 +19,25 @@ effil = require "effil"
 
 system = {}
 
-if effil.G['system'] ==  nil then
-    effil.G['system'] = {}
+if effil.G.system ==  nil then
+    effil.G.system = {}
+end
+
+if effil.G.system.storage ==  nil then
+  effil.G.system.storage = {
+      data = {},
+      new = function(self)
+          local id = #self.data + 1
+          self.data[id] = {}
+          return id
+      end,
+      get = function(self, id)
+          return self.data[id]
+      end,
+      del = function(self, id)
+          self.data[id] = false
+      end,
+  }
 end
 
 if effil.G['system']['exchange'] ==  nil then
