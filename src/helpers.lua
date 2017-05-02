@@ -1,12 +1,70 @@
 DEBUG = true
 
+if LUA_RPC_SDK == nil then
+    LUA_RPC_SDK = os.getenv("LUA_RPC_SDK") or ".."
+end
+
+
+package.path = package.path .. ";" .. LUA_RPC_SDK .. "/?.lua"
+package.path = package.path .. ";" .. LUA_RPC_SDK .. "/src/?.lua"
 package.path = package.path .. ";" .. LUA_RPC_SDK .. "/externals/?.lua"
 package.path = package.path .. ";" .. LUA_RPC_SDK .. "/externals/json/json/?.lua"
+package.path = package.path .. ";" .. LUA_RPC_SDK .. "/externals/effil/build/?.lua"
+package.path = package.path .. ";" .. LUA_RPC_SDK .. "/externals/luasocket_build/modules/?.lua"
+--
+package.cpath = package.cpath .. ";" .. LUA_RPC_SDK .. "/?.so"
+package.cpath = package.cpath .. ";" .. LUA_RPC_SDK .. "/externals/effil/build/?.so"
+package.cpath = package.cpath .. ";" .. LUA_RPC_SDK .. "/externals/luasocket_build/lib/?.so"
+--
 
 require 'string'
 
+effil = require "effil"
 local json = require "json"
 local templates = require "template.lib.resty.template"
+
+if effil.G.system ==  nil then
+    effil.G.system = {}
+end
+
+if effil.G.system.storage ==  nil then
+  effil.G.system.storage = {
+      data = {},
+      new = function(self)
+          local id = #self.data + 1
+          self.data[id] = {}
+          return id
+      end,
+      get = function(self, id)
+          return self.data[id]
+      end,
+      del = function(self, id)
+          self.data[id] = false
+      end,
+  }
+end
+
+if effil.G.system.exchange ==  nil then
+    effil.G.system.exchange = {}
+end
+
+local function create_unique_share(type, capacity)
+    local info = debug.getinfo(3)
+    local name = info.source .. ":" .. info.currentline
+    if effil.G.system.exchange[name] == nil then
+        log_dbg("Create new unique share '%s'(%s)", name, type)
+        effil.G.system.exchange[name] = effil[type](capacity)
+    else
+        log_dbg("Return existent unique share '%s'(%s)", name, type)
+    end
+    return effil.G.system.exchange[name]
+end
+
+share = {
+    storage       = effil.G.system.storage,
+    place_channel = function(capacity) return create_unique_share('channel', capacity) end,
+    place_table   = function() return create_unique_share('table') end,
+}
 
 function log_dbg(fmt, ...)
     if DEBUG then
@@ -43,21 +101,24 @@ function decode(jdata)
 end
 
 function table.copy(dst, src)
-    for k, v in pairs(src)
-    do
+    for k, v in pairs(src) do
         dst[k] = v
     end
 end
 
-function table.rcopy(dst, src)
+function table.rcopy(src)
+    if not is_table(src) then
+      return src
+    end
+    local dst = {}
     for k, v in pairs(src) do
-        if IsTable(v) then
-            dst[k] = {}
-            table.rcopy(dst[k], v)
+        if is_table(v) then
+            dst[k] = table.rcopy(v)
         else
             dst[k] = v
         end
     end
+    return dst
 end
 
 function table.exclude(dst, src)
@@ -83,7 +144,7 @@ function write_to_file(filename, data)
 end
 
 function is_table(val)
-    return type(val) == type({})
+    return type(val) == type({}) or (type(val) == "userdata" and tostring(val):sub(1, 12) == "effil::table")
 end
 
 function is_string(val)

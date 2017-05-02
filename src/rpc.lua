@@ -37,24 +37,31 @@ if args.generate then
     local language    = args.language
     local target      = args.type
 
-    local loader = require "loader"
-    local ret, generator = loader(module_path, language, target)
+    _G.target = target
+
+    if module_path == nil or io.open(module_path, "r") == nil then
+        log_err("Invalid module file: " .. module_path)
+    end
+
+    require "dsl"
+    local err, generator = pcall(require,  "lang-" .. language .. ".binding")
+    if language == nil or not err then
+        log_err("Invalid language: " .. language)
+    end
+
+    local ret, err = pcall(dofile, module_path)
     if not ret then
-        print(generator) -- it's error message
-        print(HELP)
-        os.exit(1)
+        log_err("Error during module loading: %s", err)
     end
 
     local module_name = string.gsub(module_path, "(%w-).lua", "%1")
     if type(module_name) ~= "string" then
-        print("Unable to get module name")
-        os.exit(1)
+        log_err("Unable to get module name")
     end
 
     local ret, msg = pcall(generator, { module_name = module_name, module_path = module_path })
     if not ret then
-        print(msg)
-        os.exit(1)
+        log_err("Error during generation: %s", msg)
     end
 elseif args.rebuild then
     cstorage:load()

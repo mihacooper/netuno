@@ -8,7 +8,8 @@ cstorage = {
         protocol  = true,
         custom    = true,
         system    = true
-    }
+    },
+    api_channels = {}
 }
 
 if LUA_RPC_SDK == nil then
@@ -97,7 +98,8 @@ function cstorage:build_component(cmp_name, cmp_storage)
     local cmp_file = io.open(tmp_file, "r+")
     cmp_file:write("package = require 'package'\n")
     cmp_file:close()
-    local comp_data_loader = loadfile(tmp_file)
+    local cmp_file_data = io.open(tmp_file, "r"):read("*a")
+    local comp_data_loader = load(cmp_file_data, cmp_name, "bt")
     if not comp_data_loader then
         log_err("Unable to load generated component storage")
     end
@@ -196,58 +198,229 @@ function cstorage:get_methods(cmp_name)
     return storage.components[cmp_name].methods or {}
 end
 
-function cstorage:load_component(cmp_name)
+function cstorage:get_component_loader(cmp_name)
     local cmp = storage.components[cmp_name]
-    local raw_comp_data = storage.storages[cmp.module_path].data
 
-    function loader_to_import(cmp_name, raw_data)
-        local sandbox_env = {
-            _G = {},
-            require_c = require_c,
-            require = require,
-            print = print,
-            ipairs = ipairs,
-            next = next,
-            pairs = pairs,
-            pcall = pcall,
-            tonumber = tonumber,
-            tostring = tostring,
-            type = type,
-            unpack = unpack,
-            coroutine = { create = coroutine.create, resume = coroutine.resume, 
-              running = coroutine.running, status = coroutine.status, 
-              wrap = coroutine.wrap },
-            string = { byte = string.byte, char = string.char, find = string.find, 
-              format = string.format, gmatch = string.gmatch, gsub = string.gsub, 
-              len = string.len, lower = string.lower, match = string.match, 
-              rep = string.rep, reverse = string.reverse, sub = string.sub, 
-              upper = string.upper },
-            table = { insert = table.insert, maxn = table.maxn, remove = table.remove, 
-              sort = table.sort },
-            math = { abs = math.abs, acos = math.acos, asin = math.asin, 
-              atan = math.atan, atan2 = math.atan2, ceil = math.ceil, cos = math.cos, 
-              cosh = math.cosh, deg = math.deg, exp = math.exp, floor = math.floor, 
-              fmod = math.fmod, frexp = math.frexp, huge = math.huge, 
-              ldexp = math.ldexp, log = math.log, log10 = math.log10, max = math.max, 
-              min = math.min, modf = math.modf, pi = math.pi, pow = math.pow, 
-              rad = math.rad, random = math.random, sin = math.sin, sinh = math.sinh, 
-              sqrt = math.sqrt, tan = math.tan, tanh = math.tanh },
-            os = { clock = os.clock, difftime = os.difftime, time = os.time },
-        }
-        local cmp_loader = loadstring(raw_data, nil, nil, sandbox_env)
-        if not cmp_loader then
-            error("Unable to load component data")
+    if cmp.type == "system" then
+        return { loader = ("return system.syscmp_create('%s')"):format(cmp_name) }
+    else
+        local cmp_str = storage.storages[cmp.module_path]
+        if not cmp_str then
+            log_err("Unable to find component storage: %s", cmp_name)
         end
-        local exe_stat, err = pcall(cmp_loader)
-        if not exe_stat then
-            error(("Unable to run component: %s"):format(err))
+        local raw_comp_data = cmp_str.data
+
+        local function instate_loader(cmp_name, raw_data)
+            local sandbox_env = {
+                _G = {},
+                effil = effil,
+                component = component,
+                require_c = require_c,
+                require = require,
+                print = print,
+                ipairs = ipairs,
+                next = next,
+                pairs = pairs,
+                pcall = pcall,
+                tonumber = tonumber,
+                tostring = tostring,
+                type = type,
+                unpack = unpack,
+                error = error,
+                assert = assert,
+                io = io,
+                coroutine = { create = coroutine.create, resume = coroutine.resume, 
+                  running = coroutine.running, status = coroutine.status, 
+                  wrap = coroutine.wrap },
+                string = { byte = string.byte, char = string.char, find = string.find, 
+                  format = string.format, gmatch = string.gmatch, gsub = string.gsub, 
+                  len = string.len, lower = string.lower, match = string.match, 
+                  rep = string.rep, reverse = string.reverse, sub = string.sub, 
+                  upper = string.upper },
+                table = { insert = table.insert, maxn = table.maxn, remove = table.remove, 
+                  sort = table.sort },
+                math = { abs = math.abs, acos = math.acos, asin = math.asin, 
+                  atan = math.atan, atan2 = math.atan2, ceil = math.ceil, cos = math.cos, 
+                  cosh = math.cosh, deg = math.deg, exp = math.exp, floor = math.floor, 
+                  fmod = math.fmod, frexp = math.frexp, huge = math.huge, 
+                  ldexp = math.ldexp, log = math.log, log10 = math.log10, max = math.max, 
+                  min = math.min, modf = math.modf, pi = math.pi, pow = math.pow, 
+                  rad = math.rad, random = math.random, sin = math.sin, sinh = math.sinh, 
+                  sqrt = math.sqrt, tan = math.tan, tanh = math.tanh },
+                os = { clock = os.clock, difftime = os.difftime, time = os.time },
+            }
+            local cmp_loader = loadstring(raw_data, nil, nil, sandbox_env)
+            if not cmp_loader then
+                error("Unable to load component data")
+            end
+            local exe_stat, err = pcall(cmp_loader)
+            if not exe_stat then
+                error(("Unable to run component: %s"):format(err))
+            end
+            if sandbox_env[cmp_name] == nil then
+                error(("Component entry point '%s' is nil"):format(cmp_name))
+            end
+            return sandbox_env[cmp_name]
         end
-        if sandbox_env[cmp_name] == nil then
-            error(("Component entry point '%s' is nil"):format(cmp_name))
-        end
-        return sandbox_env[cmp_name]
+        return { loader = string.dump(instate_loader), data = {cmp_name, raw_comp_data} }
     end
-    return { methods = cmp.methods, loader = string.dump(loader_to_import), component = raw_comp_data }
+end
+
+local function read_channel_data()
+    local channel_id, cmp_name = -1, ""
+    for _, id in ipairs(cstorage.api_channels) do
+        cmp_name = effil.G.system.storage:get(id).input:pop(0)
+        if cmp_name then
+            channel_id = id
+            break
+        end
+    end
+    if channel_id < 0 then
+        error("CStorage: Invalid channel ID in load component " .. tostring(channel_id))
+    end
+    log_dbg("Reading cstorage request data: channel ID = %s, component = %s", channel_id, cmp_name)
+    return channel_id, cmp_name
+end
+
+function cstorage:load_instate_component()
+    local channel_id, cmp_name = read_channel_data()
+
+    local cmp = storage.components[cmp_name]
+    if not cmp then
+        error("CStorage: Invalid component name: " .. tostring(cmp_name))
+    end
+    effil.G.system.storage:get(channel_id).output:push(self:get_component_loader(cmp_name))
+end
+
+function cstorage:load_component()
+    local channel_id, cmp_name = read_channel_data()
+
+    local cmp = storage.components[cmp_name]
+    if not cmp then
+        error("CStorage: Invalid component name: " .. tostring(cmp_name))
+    end
+    local methods = cmp.methods
+
+    local data_to_return = nil
+    if cmp.scheme == "instate" then
+        data_to_return = self:get_component_loader(cmp_name)
+    elseif cmp.scheme == "outstate" then
+        local storage_id = require('effil').G.system.storage:new()
+
+        local outstate_cli_loader_src = [[
+            return function()
+                return {
+                    __component_id = {*comp_id*},
+            {%for _, method in ipairs(methods) do%}
+                    ["{*method*}"] = function(self, ...)
+                        require('effil').G.system.storage:get({*storage_id*}).input = {...}
+                        system.outstate_call({*comp_id*}, "{*method*}", "__loaded_component")
+                        local res = require('effil').G.system.storage:get({*storage_id*}).output
+                        local ret = {}
+                        for _, v in ipairs(res) do table.insert(ret, table.rcopy(v)) end
+                        return unpack(ret)
+                    end,
+            {%end%}
+                }
+            end
+        ]]
+
+        local outstate_srv_loader_src = [[
+            return function()
+                _G.__loaded_component = {
+                    loaded_cmp = component:load_instate("{*cmp_name*}"),
+            {%for _, method in ipairs(methods) do%}
+                    ["{*method*}"] = function(self)
+                        local share = require('effil').G.system.storage:get({*storage_id*})
+                        local input = {}
+                        for k,v in ipairs(share.input) do input[k] = v end
+                        share.output = table.pack(self.loaded_cmp["{*method*}"](self.loaded_cmp, unpack(input)))
+                    end,
+            {%end%}
+                }
+            end
+        ]]
+        local outstate_srv_loader = loadstring(generate(outstate_srv_loader_src,
+                { cmp_name = cmp_name, methods = methods, storage_id = storage_id }))()
+        local comp_id = system.outstate_create(cmp_name, string.dump(outstate_srv_loader))
+
+        local outstate_cli_loader = loadstring(generate(outstate_cli_loader_src,
+                { methods = methods, storage_id = storage_id, comp_id = comp_id }))()
+
+        data_to_return = { loader = string.dump(outstate_cli_loader) }
+    elseif cmp.scheme == "service" then
+        local storage_id = require('effil').G.system.storage:new()
+        require('effil').G.system.storage:get(storage_id).exchange_channel = require('effil').channel()
+        require('effil').G.system.storage:get(storage_id).input_args = require('effil').channel()
+
+        local service_cli_loader_src = [[
+            return function(...)
+                require('effil').G.system.storage:get({*storage_id*}).input_args:push(...)
+                return require('effil').G.system.storage:get({*storage_id*}).exchange_channel
+            end
+        ]]
+
+        local service_srv_loader_src = [[
+            return function()
+                local loaded_cmp = component:load_instate("{*cmp_name*}")
+                local channel = require('effil').G.system.storage:get({*storage_id*}).exchange_channel
+                loaded_cmp["{*service_main*}"](loaded_cmp, require('effil').G.system.storage:get({*storage_id*}).input_args:pop())
+            end
+        ]]
+        local service_srv_loader = loadstring(generate(service_srv_loader_src,
+                { cmp_name = cmp_name, service_main = cmp.service_main, storage_id = storage_id}))()
+        system.service_create(cmp_name, string.dump(service_srv_loader))
+
+        local service_cli_loader = loadstring(generate(service_cli_loader_src, {storage_id = storage_id}))()
+        data_to_return = { loader = string.dump(service_cli_loader) }
+    else
+        error("Unknown component integration type " .. cmp.scheme)
+    end
+    log_dbg("Return data for request (%s, %s):", channel_id, cmp_name)
+    for k,v in pairs(data_to_return) do
+        log_dbg("\t%s = %s", string.sub(tostring(k), 1, 50), string.sub(tostring(v), 1, 50))
+    end
+    effil.G.system.storage:get(channel_id).output:push(data_to_return)
+end
+
+function cstorage:get_cstorage_api()
+    local storage_id = require('effil').G.system.storage:new()
+    require('effil').G.system.storage:get(storage_id).input = require('effil').channel()
+    require('effil').G.system.storage:get(storage_id).output = require('effil').channel()
+    table.insert(self.api_channels, storage_id)
+
+    return generate([[
+        component = { storage_id = {*storage_id*} }
+
+        function component:__load(func, cmp_name, ...)
+            require('effil').G.system.storage:get(self.storage_id).input:push(cmp_name)
+
+            system.cstorage(func)
+
+            local str = require('effil').G.system.storage:get(self.storage_id).output:pop()
+            local in_args = {}
+            if str.data then
+                for _, v in ipairs(str.data) do
+                    table.insert(in_args, v)
+                end
+            end
+            for _, v in ipairs({...}) do
+                table.insert(in_args, v)
+            end
+            return loadstring(str.loader)(unpack(in_args))
+        end
+
+        function component:load(cmp_name, ...)
+            return self:__load("load_component", cmp_name, ...)
+        end
+
+        function component:load_instate(cmp_name, ...)
+            return self:__load("load_instate_component", cmp_name, ...)
+        end
+
+        function component:unload(cmp_data)
+        end
+    ]], { storage_id = storage_id })
 end
 
 return cstorage

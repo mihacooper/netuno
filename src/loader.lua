@@ -1,81 +1,107 @@
-if LUA_RPC_SDK == nil then
-    LUA_RPC_SDK = os.getenv("LUA_RPC_SDK") or ".."
-end
---
-package.path = package.path .. ";" .. LUA_RPC_SDK .. "/?.lua"
-package.path = package.path .. ";" .. LUA_RPC_SDK .. "/src/?.lua"
-package.path = package.path .. ";" .. LUA_RPC_SDK .. "/externals/effil/build/?.lua"
-package.path = package.path .. ";" .. LUA_RPC_SDK .. "/externals/luasocket_build/modules/?.lua"
---
-package.cpath = package.cpath .. ";" .. LUA_RPC_SDK .. "/?.so"
-package.cpath = package.cpath .. ";" .. LUA_RPC_SDK .. "/externals/effil/build/?.so"
-package.cpath = package.cpath .. ";" .. LUA_RPC_SDK .. "/externals/luasocket_build/lib/?.so"
---
-
-require "os"
 require "string"
 require "helpers"
 effil = require "effil"
 
-system = {}
-
-if effil.G.system ==  nil then
-    effil.G.system = {}
-end
-
-if effil.G.system.storage ==  nil then
-  effil.G.system.storage = {
-      data = {},
-      new = function(self)
-          local id = #self.data + 1
-          self.data[id] = {}
-          return id
-      end,
-      get = function(self, id)
-          return self.data[id]
-      end,
-      del = function(self, id)
-          self.data[id] = false
-      end,
-  }
-end
-
-if effil.G['system']['exchange'] ==  nil then
-    effil.G['system']['exchange'] = {}
-end
-
-function system.unique_channel(capacity)
-    local info = debug.getinfo(2)
-    local name = info.source .. ":" .. info.currentline
-    if effil.G['system']['exchange'][name] == nil then
-        log_dbg("Create new unique channel '" .. name .. "'")
-        effil.G['system']['exchange'][name] = effil.channel(capacity)
-    else
-        log_dbg("Return existent unique channel '" .. name .. "'")
-    end
-    return effil.G['system']['exchange'][name]
-end
-
-return function(module_name, language, target)
-    if not value_in_table(target, {'client', 'server'}) then
-        return false, "Invalid target: " .. target
-    end
-
+return function(module_path, language, target)
     _G.target = target
+    _G.language = language
 
-    if module_name == nil or io.open(module_name, "r") == nil then
-        return false, "Invalid module file: " .. module_name
+    if module_path == nil or io.open(module_path, "r") == nil then
+        log_err("Invalid module file: " .. module_path)
     end
 
     require "dsl"
-    local err, generator = pcall(require,  "lang-" .. language .. ".binding")
-    if language == nil or not err then
-        return false, "Invalid language: " .. language
+    local ret, err = pcall(dofile, module_path)
+    if not ret then
+        log_err("Error during module loading: %s", err)
+    end
+end
+--[[
+system.connectors = {}
+system.protocols = {}
+system.factories = {}
+
+function system.register_connector(name, connector)
+    if system.connectors[name] ~= nil then
+        error("Error: unable to register connector, already exists '" .. name .. "'")
+    end
+    system.connectors[name] = connector
+end
+
+function system.register_protocol(name, protocol)
+    if system.protocols[name] ~= nil then
+        error("Error: unable to register protocol, already exists '" .. name .. "'")
+    end
+    system.protocols[name] = protocol
+end
+
+function system.register_factory(name, factory)
+    if system.factories[name] ~= nil then
+        error("Error: unable to register factory, already exists '" .. name .. "'")
+    end
+    system.factories[name] = factory
+end
+
+local master_connectors = {}
+
+function system.run_connectors()
+    local exchange = system.unique_channel()
+    local storage = exchange:pop(0)
+    if storage == nil then
+        for protocol, connectors in pairs(master_connectors) do
+            for _, pair in ipairs(connectors) do
+                local conn, factory = unpack(pair)
+                exchange:push({conn, protocol, factory})
+                run_new_state(function() system.run_connectors() end )
+            end
+        end
+    else
+        local conn = system.connectors[storage[1] ]
+        conn:set_context(storage[2], storage[3])
+        conn:listen()
+    end
+end
+
+function system.register_slaves(...)
+    local slaves = {...}
+    local function add_connector(conn, protocol, factory)
+        if master_connectors[protocol] == nil then
+            master_connectors[protocol] = {}
+        end
+        local is_new = true
+        for _, val in ipairs(master_connectors[protocol]) do
+            if val[0] == conn[0] then
+                is_new = false
+                break
+            end
+        end
+        if is_new then
+            table.insert(master_connectors[protocol], {conn, factory})
+        end
     end
 
-    local ret, err = pcall(dofile, module_name)
-    if not ret then
-        return false, err
+    if system.connectors["default_connector"] == nil then
+        system.register_connector("default_connector", default_connector)
     end
-    return true, generator
+    if system.protocols["default_protocol"] == nil then
+        system.register_protocol("default_protocol", default_protocol)
+    end
+    if system.factories["default_factory"] == nil then
+        system.register_factory("default_factory", default_factory)
+    end
+
+    for _, slave in ipairs(slaves) do
+        local slave_connector = slave.flags.connector or "default_connector"
+        local slave_protocol  = slave.flags.protocol  or "default_protocol"
+        local slave_factory   = slave.flags.factory   or "default_factory"
+        add_connector(slave_connector, slave_protocol, slave_factory)
+        for _, func in ipairs(slave.functions) do
+            add_connector(
+                func.connector or slave_connector,
+                func.protocol  or slave_protocol,
+                slave_factory)
+        end
+    end
+    system.slave_interfaces = slaves
 end
+]]

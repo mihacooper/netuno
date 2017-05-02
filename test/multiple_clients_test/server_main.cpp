@@ -29,7 +29,7 @@ protected:
 };
 
 std::mutex g_lock;
-const size_t g_maxSlavesNum = 100;
+const size_t g_maxSlavesNum = 10;
 std::vector<std::shared_ptr<IncrementerWithState> > g_slaves;
 
 namespace rpc_sdk

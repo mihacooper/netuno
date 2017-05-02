@@ -10,7 +10,6 @@ testf_generate_cpp sample server
 testf_compile sample_server $TEST_DIR/server_main.cpp sample.cpp
 testf_log "Server has been created"
 
-
 testf_log "Run server"
 ./sample_server &
 SERVER_PID=$!
