@@ -79,15 +79,15 @@ function testf_compile()
 {
     binary_name=$1; shift
     testf_assert g++ -O0 -g -pthread -std=c++14 $@ \
-        -I/usr/include/lua5.3 -I$SDK_DIR/lang-cpp/sol2/single/sol -I$WORK_DIR \
-        -llua5.3 -o $binary_name
+        -I/usr/include/lua5.2 -I$SDK_DIR/lang-cpp/sol2/single/sol -I$WORK_DIR \
+        -llua5.2 -o $binary_name
 }
 
 function testf_generate_cpp()
 {
     MODULE_NAME=$1
     cp $TEST_DIR/${MODULE_NAME}.lua .
-    lua5.3 $SDK_DIR/rpc.lua generate "${MODULE_NAME}.lua" cpp $2 -o "${MODULE_NAME}-$2"
+    lua $SDK_DIR/rpc.lua generate "${MODULE_NAME}.lua" cpp $2 -o "${MODULE_NAME}-$2"
     testf_assert [ -f "${MODULE_NAME}-$2.cpp" ]
     testf_assert [ -f "${MODULE_NAME}-$2.hpp" ]
 }

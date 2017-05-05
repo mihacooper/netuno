@@ -7,9 +7,16 @@ exports = {
 }
 
 local function CheckName(name)
+    if name == nil then
+        error("Invalid name == nil")
+    end
+    if type(name) ~= "string" then
+        error(string.format("Invalid name type = %s", type(name)))
+    end
+
     first, last = string.find(name, '[%a|_][%a|_|%d]+')
     if not(first == 1 and last == #name) then
-        error(string.format("Invalid name '%s'", name))
+        error(string.format("Invalid name format '%s'", name))
     end
 end
 

@@ -78,7 +78,7 @@ COMMENT
 
     mkdir $ROOT_DIR/externals/effil/build || true
     cd $ROOT_DIR/externals/effil/build
-    cmake .. -DCMAKE_BUILD_TYPE=Release &&
+    cmake .. -DCMAKE_BUILD_TYPE=Release -DLUA_INCLUDE_DIR=/usr/include/lua5.2 -DLUA_LIBRARY=lua5.2 &&
     make -j4 && make install
 
 <<"COMMENT"
