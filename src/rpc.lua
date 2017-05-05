@@ -15,7 +15,8 @@ parser:command_target("command")
 generate_cmd = parser:command("generate", "generate sources")
     generate_cmd:argument("module", "the name of module included the interface")
     generate_cmd:argument("language", "the destination language")
-    generate_cmd:argument("type", "client or server source file")
+    generate_cmd:argument("target", "client or server target")
+    generate_cmd:option("-o --output", "generation output files name"):count("0-1")
 rebuild_cmd  = parser:command("rebuild",  "rebuild general manifest")
     rebuild_cmd:argument("component", "component name"):args("?")
 register_cmd = parser:command("register", "register component")
@@ -35,7 +36,7 @@ end
 if args.generate then
     local module_path = args.module
     local language    = args.language
-    local target      = args.type
+    local target      = args.target
 
     _G.target = target
 
@@ -54,9 +55,12 @@ if args.generate then
         log_err("Error during module loading: %s", err)
     end
 
-    local module_name = string.gsub(module_path, "(%w-).lua", "%1")
-    if type(module_name) ~= "string" then
-        log_err("Unable to get module name")
+    local module_name = args.output
+    if not module_name then
+        module_name= string.gsub(module_path, "(%w-).lua", "%1")
+        if type(module_name) ~= "string" then
+            log_err("Unable to get module name")
+        end
     end
 
     local ret, msg = pcall(generator, { module_name = module_name, module_path = module_path })

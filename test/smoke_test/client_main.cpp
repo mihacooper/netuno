@@ -1,5 +1,5 @@
 #include <iostream>
-#include "sample.hpp"
+#include "sample-client.hpp"
 
 using namespace rpc_sdk;
 
@@ -29,6 +29,18 @@ int main()
 {
     Initialize();
     SampleInterface interface;
+
+    bool extra_client_code = false;
+    try {
+        SampleInterface dummy;
+    }
+    catch (const sol::error& err)
+    {
+        std::cout << "Client got exception: " << err.what() << std::endl;
+        extra_client_code = true;
+    }
+    CHECK_FUNC(extra_client_code, true);
+
     SampleStructure str{76, "oprst"};
     CHECK_FUNC(interface.MyFunction1(10, 12), (SampleStructure{10,"12"}));
     CHECK_FUNC(interface.MyFunction2(str, "string"), str.field1);

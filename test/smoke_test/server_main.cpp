@@ -1,8 +1,24 @@
 #include <iostream>
-#include "sample.hpp"
+#include "sample-server.hpp"
 #include "atomic"
 
 using namespace rpc_sdk;
+
+std::mutex g_lock;
+size_t g_ifaceCount = 0;
+
+namespace rpc_sdk
+{
+    std::shared_ptr<SampleInterface> createSampleInterface()
+    {
+        std::unique_lock<std::mutex> lock(g_lock);
+        if (g_ifaceCount >= 1)
+            return nullptr;
+
+        g_ifaceCount++;
+        return std::make_shared<SampleInterface>();
+    }
+}
 
 SampleInterface::SampleInterface() {}
 

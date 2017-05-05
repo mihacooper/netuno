@@ -99,6 +99,7 @@ local source_template =
 #include <memory>
 #include <functional>
 #include <map>
+#include <iostream>
 
 namespace rpc_sdk
 {
@@ -106,6 +107,12 @@ namespace rpc_sdk
 #define CHECK(x, msg) { \
     if(!(x)) { printf("ERROR at %s:%d\n\t%s ", __FILE__, __LINE__, #x); \
         throw std::runtime_error(msg);} }
+
+#ifdef DEBUG
+#   define LOG() std::cout
+#else
+#   define LOG() if (false) std::cout
+#endif
 
 namespace {
 
@@ -136,7 +143,7 @@ typedef std::shared_ptr<OutstateContext> OutstateContextPtr;
 
 std::recursive_mutex g_outstatesLock;
 std::vector<OutstateContextPtr> g_outstates;
-std::mutex g_servicesLock;
+std::recursive_mutex g_servicesLock;
 std::vector<std::shared_ptr<std::thread>> g_serverThreads;
 
 {%for _, str  in pairs(structs) do%}
@@ -175,6 +182,16 @@ public:
 };
 {%end%}
 
+sol::table LoadDefinition(sol::state_view state)
+{
+    const std::string pathToLoader = g_sdkPath + std::string("/src/loader.lua");
+    sol::function loadInterfaceFunc = state.script_file(pathToLoader);
+    CHECK(loadInterfaceFunc.valid(), "Unable to load loader");
+    sol::table context = loadInterfaceFunc(g_pathToModule.empty() ? "{*module_path*}" : g_pathToModule, "cpp", "{*target*}");
+    CHECK(context.valid(), "Unable to get context from loader");
+    return context;
+}
+
 {%for _, interface  in pairs(slave_ifaces) do%}
 sol::object {*interface.name*}Creator(sol::state_view state)
 {
@@ -182,13 +199,11 @@ sol::object {*interface.name*}Creator(sol::state_view state)
     if (ptr.get() == nullptr)
         return sol::nil;
 
-    const std::string pathToLoader = g_sdkPath + std::string("/src/loader.lua");
-    sol::function loadInterfaceFunc = state.script_file(pathToLoader);
-    CHECK(loadInterfaceFunc.valid(), "Unable to load loader");
-    loadInterfaceFunc(g_pathToModule.empty() ? "{*module_path*}" : g_pathToModule, "cpp", "{*target*}");
+    sol::table context = LoadDefinition(state);
 
-    state["{*interface.name*}"]["server"] = [=]() -> sol::object { return sol::make_object(state, std::make_unique<WrapperOf{*interface.name*}>(ptr)); };
-    sol::table iface = state["{*interface.name*}"]["new"](state["{*interface.name*}"]);
+    sol::table iface_type = context["exports"]["slaves"]["{*interface.name*}"];
+    iface_type["server"] = [=]() -> sol::object { return sol::make_object(state, std::make_unique<WrapperOf{*interface.name*}>(ptr)); };
+    sol::table iface = iface_type["new"](iface_type);
     return iface;
 }
 
@@ -224,19 +239,25 @@ int OutstateCreator(const std::string& cmpName, const std::string& loaderData)
 void OutstateUnload(const size_t id)
 {
     std::lock_guard<std::recursive_mutex> lock(g_outstatesLock);
+    if (id >= g_outstates.size())
+        throw sol::error("Invalid component ID to unload: " + std::to_string(id));
     g_outstates[id].reset();
 }
 
-void ServiceCreator(const std::string& cmpName, const std::string& loaderData)
+void ServiceCreator(const std::string& loaderData)
 {
-    std::lock_guard<std::mutex> lock(g_servicesLock);
     SdkState state = CreateNewState();
 
+    std::lock_guard<std::recursive_mutex> lock(g_servicesLock);
+    LOG() << "Create new thread #" << g_serverThreads.size();
     g_serverThreads.push_back(
-        std::make_shared<std::thread>([=](SdkState state){
-            sol::function loader = (*state)["loadstring"](loaderData);
-            loader();
-        }, state));
+        std::make_shared<std::thread>([=](SdkState&& state){
+            {
+                sol::function loader = (*state)["loadstring"](loaderData);
+                loader();
+            }
+            state.reset();
+        }, std::move(state)));
 }
 
 void OutstateMethodCall(sol::this_state thisState, size_t id, const std::string& method, const std::string& table)
@@ -253,9 +274,11 @@ void OutstateMethodCall(sol::this_state thisState, size_t id, const std::string&
     obj[method](obj);
 }
 
-void CStorageMethodCall(sol::this_state thisState, const std::string& method)
+void CStorageMethodCall(sol::this_state thisState, const std::string& method, int id)
 {
-    OutstateMethodCall(thisState, 0, method, "cstorage");
+    std::lock_guard<std::recursive_mutex> lock(g_stateLock);
+    sol::table obj = (*g_sdkState)["cstorage"];
+    obj[method](obj, id);
 }
 
 SdkState CreateNewState()
@@ -304,12 +327,9 @@ SdkState CreateNewState()
 {
     std::lock_guard<std::mutex> lock(m_lock);
 
-    const std::string pathToLoader = g_sdkPath + std::string("/src/loader.lua");
-    sol::function loadInterfaceFunc = m_sdkState->script_file(pathToLoader);
-    CHECK(loadInterfaceFunc.valid(), "Unable to load loader");
-    loadInterfaceFunc(g_pathToModule.empty() ? "{*module_path*}" : g_pathToModule, "cpp", "{*target*}");
+    sol::table context = LoadDefinition(*m_sdkState);
 
-    sol::table interfaceType = (*m_sdkState)["{*interface.name*}"];
+    sol::table interfaceType = context["exports"]["masters"]["{*interface.name*}"];
     CHECK(interfaceType.valid(), "Unable to get Lua interface type");
     m_interface = interfaceType["new"](interfaceType);
     CHECK(m_interface.valid(), "Unable to get Lua interface instance");
@@ -343,13 +363,13 @@ void Initialize(const std::string& pathToModule)
 
     g_sdkState = std::make_shared<sol::state>();
     g_sdkState->open_libraries();
-    g_outstates.push_back(std::make_shared<OutstateContext>(g_sdkState));
 
     (*g_sdkState)["system"] = g_sdkState->create_table();
+    (*g_sdkState)["system"]["cstorage"]        = &CStorageMethodCall;
     (*g_sdkState)["system"]["outstate_create"] = &OutstateCreator;
-    (*g_sdkState)["system"]["outstate_call"] = &OutstateMethodCall;
+    (*g_sdkState)["system"]["outstate_call"]   = &OutstateMethodCall;
     (*g_sdkState)["system"]["outstate_unload"] = &OutstateUnload;
-    (*g_sdkState)["system"]["service_create"] = &ServiceCreator;
+    (*g_sdkState)["system"]["service_create"]  = &ServiceCreator;
 
     g_sdkState->script("package.path = package.path .. ';' .. '" + g_sdkPath + "' .. '/src/?.lua'");
     g_sdkState->script_file(g_sdkPath + std::string("/src/cstorage.lua"));
@@ -375,9 +395,15 @@ void Initialize(const std::string& pathToModule)
     }
 {%end%}
 
-{%if #slave_ifaces > 0 then%}
-    CreateNewState()->script("component:load('tcp_connector_slave', '127.0.0.1', 9898, 'json_protocol', 'plain_factory')");
-{%end%}
+    {
+        SdkState state = CreateNewState();
+        sol::table    context = LoadDefinition(*state);
+        sol::function startups_loader = context["startups_loader"];
+        sol::table    startups_data   = context["startups_data"];
+        CHECK(startups_loader, "Error: 'startups_loader' = nil")
+        CHECK(startups_data,   "Error: 'startups_data' = nil")
+        startups_loader(startups_data);
+    }
 }
 
 void Uninitialize()

@@ -29,24 +29,29 @@ end
 
 function json_protocol_encode:request_new(iface_name)
     assert(type(iface_name) == "string")
+    log_dbg("Start request for new interface '%s'", iface_name)
     local response = self.connector:send_with_return(encode({ request = "new", interface = iface_name}))
     local response = decode(response)
-    if response.status ~= "ok" then
-        log_err("Attept to create a new connection has failed, error: %s", response.status)
+    if response.result ~= 0 then
+        log_err("Attept to create a new connection has failed, error: %s", response.msg)
     end
-    if type(response.iid) ~= "string" or response.iid == "" then
-        log_err("New connection has received invalid IID = %s", response.iid)
+    if type(response.msg) ~= "string" or response.msg == "" then
+        log_err("New connection has received invalid IID = %s", response.msg)
     end
-    self.iid = response.iid
+    self.iid = response.msg
 end
 
 function json_protocol_encode:request_call(func, ...)
     local data_to_send = { iid = self.iid, request = "call", method = func.type.name, args = {...} }
-    return decode(self.connector:send_with_return(encode(data_to_send)))
+    local response = decode(self.connector:send_with_return(encode(data_to_send)))
+    if response.result ~= 0 then
+        log_err("Connection got error: %s", response.msg)
+    end
+    return response.msg
 end
 
 function json_protocol_encode:request_del()
-    self.connector:send(encode { iid = self.iid, request = "close" })
+    self.connector:send_with_return(encode { iid = self.iid, request = "close" })
 end
 
 --[[
@@ -65,33 +70,40 @@ function json_protocol_decode:process(data)
             local status, id = self.factory:new(data.interface)
             if not status then
                 log_dbg("Factory return error: %s", id)
-                return false, { status = id }
+                return false, { result = 1, msg = id }
             end
-            return false, { status = "ok", iid = id }
+            return false, { result = 0, msg = id }
         end,
         call = function(data)
             local iface = self.factory:get(data.iid)
             if iface == nil then
-                return false, { status = "error", msg = "invalid IID = " .. tostring(data.iid)}
+                return false, { result = 1, msg = "invalid IID = " .. tostring(data.iid)}
             end
             local method = iface[data.method]
             if method == nil then
-                return false, { status = "error", msg = "unknown method request: " .. tostring(data.method)}
+                return false, { result = 1, msg = "unknown method requested: " .. tostring(data.method)}
             end
-            return false, method(iface, unpack(data.args))
+            local call_res, call_ret = pcall(method, iface, unpack(data.args))
+            if not call_res then
+                return true, { result = 1, msg = ("Exception occurs during method (%s) call: %s"):format(method, call_ret) }
+            end
+            return false, { result = 0, msg = call_ret }
         end,
         close = function(data)
             self.factory:del(data.iid)
-            return true
+            return true, { result = 0 }
         end
     }
     local decoded_data = decode(data)
     local request = decoded_data["request"]
     local data_to_send = ""
     if request == nil or processor[request] == nil then
-        return false, encode({status = "error: invalid request"})
+        return false, encode({ result = 1, msg = "invalid request"})
     else
-        local do_exit, response = processor[request](decoded_data)
+        local call_res, do_exit, response = pcall(processor[request], decoded_data)
+        if not response then
+            return encode({ result = 1, msg = do_exit })
+        end
         return do_exit, encode(response)
     end
 end

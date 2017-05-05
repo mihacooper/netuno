@@ -80,7 +80,7 @@ function new_metatype(type_creator, instance_creator)
                         ntype.lang.new_type(ntype)
                     end
                     if public == nil or public == true then
-                        _G[self.name] = ntype
+                        _ENV[self.name] = ntype
                     end
                     return ntype
                 end
@@ -167,7 +167,7 @@ func = new_metatype(
             {
                 __index = function(f, output_name)
                     getmetatable(f).__index = nil
-                    f.output = _G[output_name]
+                    f.output = _ENV[output_name]
                     if f.output == nil then
                         error("Invalid function " .. f.name .. " output: " .. tostring(output_name))
                     end

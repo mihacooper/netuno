@@ -1,11 +1,11 @@
-#include "sample.hpp"
+#include "sample-client.hpp"
 #include <iostream>
 #include <mutex>
 
 using namespace rpc_sdk;
 
 std::mutex g_lock;
-int g_return_code = 0;
+volatile int g_return_code = 0;
 size_t g_createdIfaces = 0;
 
 #define CHECK(f, res) \
@@ -27,11 +27,20 @@ void ThreadWorker()
         g_createdIfaces++;
     }
     int result = 0;
-    for (size_t i = 0; i < 1000; ++i)
+    try
     {
-        const int value = i * (rand() % 2 == 0 ? -1 : 1);
-        result += value;
-        inc.Increment(value);
+        for (size_t i = 0; i < 1000; ++i)
+        {
+            const int value = i * (rand() % 2 == 0 ? -1 : 1);
+            result += value;
+            inc.Increment(value);
+        }
+    }
+    catch(const sol::error err)
+    {
+        std::cout << "Client thread got exception: " << err.what() << std::endl;
+        std::unique_lock<std::mutex> lock(g_lock);
+        g_return_code = 1;
     }
     CHECK(inc.Result(), result);
     std::cout << "Client thread has finished work" << std::endl;
@@ -40,7 +49,7 @@ void ThreadWorker()
 int main()
 {
     srand(time(0));
-    const size_t threads_num = 2;
+    const size_t threads_num = 3;
     std::vector<std::thread> threads;
 
     Initialize();
@@ -51,20 +60,10 @@ int main()
 
     while (g_createdIfaces != threads_num) {}
 
-    g_return_code = 1;
-    try {
-        //Incrementer inc;
-    }
-    catch (const sol::error& err)
-    {
-        std::cout << "Client got exception: " << err.what() << std::endl;
-        g_return_code = 0;
-    }
-    //CHECK(g_return_code, 0);
-
     for (auto& thr: threads)
         thr.join();
 
     Uninitialize();
+    std::cout << "Return code: " << g_return_code << std::endl;
     return g_return_code;
 }

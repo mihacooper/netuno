@@ -1,10 +1,6 @@
 local socket = require "socket"
 local effil = require "effil"
 
-function log_dbg(fmt, ...)
-    print(string.format(fmt, ...))
-end
-
 --[[
     tcp_connector_master
 ]]
@@ -18,14 +14,17 @@ end
 
 function tcp_connector_master:send_with_return(data)
     self:send(data)
+    log_dbg("TCP connector [%s] waiting for response from server...", self.sock:getfd())
     local line, err = self.sock:receive("*l")
     if err ~= nil then
         error( ("Client connection [%s] has received error: %s"):format(self.sock:getfd(), err))
     end
+    log_dbg("TCP connector [%s] got response '%s'", self.sock:getfd(), line)
     return line
 end
 
 function tcp_connector_master:send(data)
+    log_dbg("TCP connector [%s] send data '%s'", self.sock:getfd(), data)
     self.sock:send(data)
 end
 
@@ -77,9 +76,11 @@ function tcp_connector_worker:run(host, port, socket_fd, protocol_name, factory_
     connection:close()
     connection:setfd(socket_fd)
     while not effil.G.shutdown and not exit_thread do
+        log_dbg("Server thread [%s] waiting for request...", socket_fd)
         local data, status = connection:receive("*l")
         log_dbg("Server thread [%s] receive: %s, err: %s", socket_fd, data, status or "nil")
         if status == "closed" then
+            log_dbg("Server thread [%s] socket closed", socket_fd)
             break
         else
             exit_thread, data_to_send = protocol:process(data)

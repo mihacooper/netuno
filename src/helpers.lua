@@ -29,19 +29,25 @@ end
 
 if effil.G.system.storage ==  nil then
   effil.G.system.storage = {
-      data = {},
+      data = { lock = effil.channel() },
+
       new = function(self)
+          self.data.lock:pop()
           local id = #self.data + 1
           self.data[id] = {}
+          self.data.lock:push(true)
           return id
       end,
+
       get = function(self, id)
           return self.data[id]
       end,
+
       del = function(self, id)
-          self.data[id] = false
+          self.data[id] = nil
       end,
   }
+  effil.G.system.storage.data.lock:push(true)
 end
 
 if effil.G.system.exchange ==  nil then

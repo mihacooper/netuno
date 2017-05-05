@@ -216,6 +216,8 @@ function cstorage:get_component_loader(cmp_name)
                 effil = effil,
                 component = component,
                 require_c = require_c,
+                log_dbg = log_dbg,
+                log_err = log_err,
                 require = require,
                 print = print,
                 ipairs = ipairs,
@@ -238,7 +240,7 @@ function cstorage:get_component_loader(cmp_name)
                   rep = string.rep, reverse = string.reverse, sub = string.sub, 
                   upper = string.upper },
                 table = { insert = table.insert, maxn = table.maxn, remove = table.remove, 
-                  sort = table.sort },
+                  sort = table.sort, concat = table.concat },
                 math = { abs = math.abs, acos = math.acos, asin = math.asin, 
                   atan = math.atan, atan2 = math.atan2, ceil = math.ceil, cos = math.cos, 
                   cosh = math.cosh, deg = math.deg, exp = math.exp, floor = math.floor, 
@@ -266,24 +268,12 @@ function cstorage:get_component_loader(cmp_name)
     end
 end
 
-local function read_channel_data()
-    local channel_id, cmp_name = -1, ""
-    for _, id in ipairs(cstorage.api_channels) do
-        cmp_name = effil.G.system.storage:get(id).input:pop(0)
-        if cmp_name then
-            channel_id = id
-            break
-        end
-    end
-    if channel_id < 0 then
-        error("CStorage: Invalid channel ID in load component " .. tostring(channel_id))
+function cstorage:load_instate_component(channel_id)
+    local cmp_name = effil.G.system.storage:get(channel_id).input:pop(0)
+    if not cmp_name then
+        error("CStorage: unable to read input data from channel '" .. tostring(channel_id) .. "'")
     end
     log_dbg("Reading cstorage request data: channel ID = %s, component = %s", channel_id, cmp_name)
-    return channel_id, cmp_name
-end
-
-function cstorage:load_instate_component()
-    local channel_id, cmp_name = read_channel_data()
 
     local cmp = storage.components[cmp_name]
     if not cmp then
@@ -292,8 +282,12 @@ function cstorage:load_instate_component()
     effil.G.system.storage:get(channel_id).output:push(self:get_component_loader(cmp_name))
 end
 
-function cstorage:load_component()
-    local channel_id, cmp_name = read_channel_data()
+function cstorage:load_component(channel_id)
+    local cmp_name = effil.G.system.storage:get(channel_id).input:pop(0)
+    if not cmp_name then
+        error("CStorage: unable to read input data from channel '" .. tostring(channel_id) .. "'")
+    end
+    log_dbg("Reading cstorage request data: channel ID = %s, component = %s", channel_id, cmp_name)
 
     local cmp = storage.components[cmp_name]
     if not cmp then
@@ -305,10 +299,16 @@ function cstorage:load_component()
     if cmp.scheme == "instate" then
         data_to_return = self:get_component_loader(cmp_name)
     elseif cmp.scheme == "outstate" then
-        local storage_id = require('effil').G.system.storage:new()
+        local storage_id = effil.G.system.storage:new()
+        effil.G.system.storage:get(storage_id).creation_status = effil.channel()
 
         local outstate_cli_loader_src = [[
             return function()
+                local stat, err = require('effil').G.system.storage:get({*storage_id*}).creation_status:pop()
+                if not stat then
+                    log_dbg(err)
+                    return nil
+                end
                 return {
                     __component_id = {*comp_id*},
             {%for _, method in ipairs(methods) do%}
@@ -327,8 +327,15 @@ function cstorage:load_component()
 
         local outstate_srv_loader_src = [[
             return function()
+                local loaded_cmp = component:load_instate("{*cmp_name*}")
+                if not loaded_cmp then
+                    require('effil').G.system.storage:get({*storage_id*}).creation_status:push(false,
+                            "Outstate component loader returns nil ({*cmp_name*}, {*storage_id*})")
+                    return nil
+                end
+                require('effil').G.system.storage:get({*storage_id*}).creation_status:push(true)
                 _G.__loaded_component = {
-                    loaded_cmp = component:load_instate("{*cmp_name*}"),
+                    loaded_cmp = loaded_cmp,
             {%for _, method in ipairs(methods) do%}
                     ["{*method*}"] = function(self)
                         local share = require('effil').G.system.storage:get({*storage_id*})
@@ -369,7 +376,7 @@ function cstorage:load_component()
         ]]
         local service_srv_loader = loadstring(generate(service_srv_loader_src,
                 { cmp_name = cmp_name, service_main = cmp.service_main, storage_id = storage_id}))()
-        system.service_create(cmp_name, string.dump(service_srv_loader))
+        system.service_create(string.dump(service_srv_loader))
 
         local service_cli_loader = loadstring(generate(service_cli_loader_src, {storage_id = storage_id}))()
         data_to_return = { loader = string.dump(service_cli_loader) }
@@ -381,6 +388,9 @@ function cstorage:load_component()
         log_dbg("\t%s = %s", string.sub(tostring(k), 1, 50), string.sub(tostring(v), 1, 50))
     end
     effil.G.system.storage:get(channel_id).output:push(data_to_return)
+
+    collectgarbage()
+    effil.gc.collect()
 end
 
 function cstorage:get_cstorage_api()
@@ -395,7 +405,7 @@ function cstorage:get_cstorage_api()
         function component:__load(func, cmp_name, ...)
             require('effil').G.system.storage:get(self.storage_id).input:push(cmp_name)
 
-            system.cstorage(func)
+            system.cstorage(func, self.storage_id)
 
             local str = require('effil').G.system.storage:get(self.storage_id).output:pop()
             local in_args = {}
@@ -407,6 +417,8 @@ function cstorage:get_cstorage_api()
             for _, v in ipairs({...}) do
                 table.insert(in_args, v)
             end
+            collectgarbage()
+            require('effil').gc.collect()
             return loadstring(str.loader)(unpack(in_args))
         end
 
@@ -419,6 +431,9 @@ function cstorage:get_cstorage_api()
         end
 
         function component:unload(cmp_data)
+            if type(cmp_data) == "table" and cmp_data.__component_id then
+                system.outstate_unload(cmp_data.__component_id)
+            end
         end
     ]], { storage_id = storage_id })
 end

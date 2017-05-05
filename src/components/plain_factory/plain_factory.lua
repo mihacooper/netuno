@@ -17,7 +17,7 @@ function plain_factory:get(id)
 end
 
 function plain_factory:del(id)
-    component.unload(self.interface_instances[id])
+    component:unload(self.interface_instances[id])
     self.interface_instances[id] = nil
 end
 

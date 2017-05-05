@@ -1,5 +1,5 @@
 #include <iostream>
-#include "sample.hpp"
+#include "sample-server.hpp"
 #include "atomic"
 #include "csignal"
 #include "mutex"
@@ -29,7 +29,7 @@ protected:
 };
 
 std::mutex g_lock;
-const size_t g_maxSlavesNum = 10;
+const size_t g_maxSlavesNum = 9;
 std::vector<std::shared_ptr<IncrementerWithState> > g_slaves;
 
 namespace rpc_sdk
@@ -37,8 +37,6 @@ namespace rpc_sdk
     std::shared_ptr<Incrementer> createIncrementer()
     {
         std::unique_lock<std::mutex> lock(g_lock);
-        if (g_slaves.size() == g_maxSlavesNum)
-            return nullptr;
         auto ptr = std::make_shared<IncrementerWithState>();
         g_slaves.push_back(ptr);
         return std::dynamic_pointer_cast<Incrementer>(ptr);
@@ -55,13 +53,16 @@ int main()
     {
         {
             std::unique_lock<std::mutex> lock(g_lock);
-            doExit = true;
+            doExit = g_slaves.size() == g_maxSlavesNum;
             for (auto& slave: g_slaves)
             {
                 doExit = doExit && slave.use_count() == 1;
             }
+            if (doExit)
+                std::cout << "Server decided to shut down" << std::endl;
         }
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }
     Uninitialize();
+    return 0;
 }

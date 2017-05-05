@@ -6,6 +6,9 @@ class "Incrementer"
     connector = "tcp_connector";
     factory   = "plain_factory";
     protocol  = "json_protocol";
+
+    host = "localhost";
+    port = 9898;
 }
 
 if target == "client" then
