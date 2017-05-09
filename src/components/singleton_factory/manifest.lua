@@ -1,8 +1,8 @@
-module_path = "plain_factory";
+module_path = "singleton_factory";
 submodules  = {};
 
 component {
-    name    = "plain_factory";
+    name    = "singleton_factory";
     type    = "custom";
     scheme  = "outstate-singleton";
     entry   = "get_factory";

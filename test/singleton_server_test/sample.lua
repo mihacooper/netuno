@@ -1,11 +1,10 @@
-class "Incrementer"
+class "RRInterface"
 {
-    func "Increment": none_t(int_t "value");
-    func "Result": int_t();
+    func "Send": string_t(string_t "msg");
 
     connector = ({
         client = {
-            "json_protocol_encode";
+            "raw_protocol_encode";
             "tcp_connector_master";
             "localhost";
             9898;
@@ -14,14 +13,14 @@ class "Incrementer"
             "tcp_connector_slave";
             "localhost";
             9898;
-            "json_protocol_decode";
-            "plain_factory";
+            "raw_protocol_decode";
+            "singleton_factory";
         }
     })[target]
 }
 
 if target == "client" then
-    exports.masters = { Incrementer }
+    exports.masters = { RRInterface }
 elseif target == "server" then
-    exports.slaves  = { Incrementer }
+    exports.slaves = { RRInterface }
 end

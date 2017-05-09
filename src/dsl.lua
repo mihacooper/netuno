@@ -21,10 +21,15 @@ local function CheckName(name)
 end
 
 function new_type(creator)
-    local t = {}
+    local t = { lang = {} }
 
     function t:specialize_type(specific)
-        self.lang = specific
+        self.spec = specific
+        if specific and specific.props then
+            for k, v in pairs(specific.props) do
+                self.lang[k] = v
+            end
+        end
         self.specialize_type = nil
     end
 
@@ -39,8 +44,8 @@ function new_type(creator)
                     if creator then
                         creator(instance)
                     end
-                    if t.lang and t.lang.new_instance then
-                        t.lang.new_instance(instance)
+                    if t.spec and t.spec.new_type then
+                        instance.lang = t.spec.new_type(instance)
                     end
                 end
                 return instance
@@ -50,10 +55,10 @@ function new_type(creator)
     function t:new(...)
         local instance = { type = self }
         if creator then
-            creator(instance, ...)
+            instance.value = creator(instance, ...)
         end
-        if self.lang and self.lang.new_instance then
-            t.lang.new_instance(instance)
+        if self.spec and self.spec.new_instance then
+            instance.lang = self.spec.new_instance(instance)
         end
         return instance
     end
@@ -69,7 +74,7 @@ function new_metatype(type_creator, instance_creator)
     local t = {}
 
     function t:specialize_type(specific)
-        self.lang = specific
+        self.spec = specific
         self.specialize_type = nil
     end
 
@@ -77,14 +82,14 @@ function new_metatype(type_creator, instance_creator)
         {
             __call = function(t, name)
                 CheckName(name)
-                local blank = { name = name, type = t, lang = t.lang}
+                local blank = { name = name, type = t, spec = t.spec}
                 function blank:finalize_type(name, public)
                     local ntype = new_type(instance_creator)
                     ntype.name = self.name
                     ntype.type = self.type
-                    ntype:specialize_type(self.lang)
-                    if ntype.lang and ntype.lang.new_type then
-                        ntype.lang.new_type(ntype)
+                    ntype:specialize_type(self.spec)
+                    if ntype.spec and ntype.spec.new_type then
+                        ntype.lang = ntype.spec.new_type(ntype)
                     end
                     if public == nil or public == true then
                         _ENV[self.name] = ntype
@@ -124,11 +129,14 @@ class = new_metatype(
             self[key] = val
         end
         if target == "client" then
-            self.protocol = component:load( (self.protocol or default_protocol) .. "_encode")
-            self.protocol:set_connector((self.connector or default_connector) .. "_master")
-            self.protocol:request_new(self.type.name)
+            local use_connector = self.connector or default_connector
+            self.connector = component:load(use_connector[1], select(2, unpack(use_connector) ))
+            if self.connector == nil then
+                log_err("Unable to load connector: %s", use_connector[1])
+            end
+            self.iid = self.connector:request_new(self.type.name)
             self["%del"] = function()
-                self.protocol:request_del()
+                self.connector:request_del(self.iid)
             end
         else
             self.server = self.type.server()
@@ -161,10 +169,11 @@ struct = new_metatype(
         )
     end,
     function(self, str)
-        self.value = {}
+        local value = {}
         for _, field in pairs(self.type.fields) do
-            self.value[field.name] = field.type:new(str[field.name]).value
+            value[field.name] = field.type:new(str[field.name]).value
         end
+        return value
     end
 )
 
@@ -182,9 +191,10 @@ func = new_metatype(
                         local ret = self:finalize_type(false)
                         ret.input = {...}
                         ret.output = self.output
+                        ret.props = {}
                         ret.with = function(f, props)
                             for k,v in pairs(props) do
-                                f[k] = v
+                                f.props[k] = v
                             end
                             return f
                         end
@@ -201,6 +211,9 @@ func = new_metatype(
                     local in_args = {...}
                     local use_args = {}
                     for i = 1, #f.type.input do
+                        if tostring(in_args[i]):sub(1, 12) == "effil::table" then
+                            in_args[i] = table.rcopy(in_args[i])
+                        end
                         table.insert(use_args, f.type.input[i].type:new(in_args[i]).value)
                     end
                     local return_value = nil
@@ -208,24 +221,23 @@ func = new_metatype(
                         return_value = f.type.impl(unpack(use_args))
                     else
                         if target == "client" then
-                            if self.protocol == nil then
-                                --if self.type.connector then
-                                --    self.connection = self.type.connector:create()
-                                --else
-                                --    self.connection = self.parent.connection
-                                --end
-                                if self.type.protocol or self.type.connector then
-                                    self.protocol = self.type.protocol:new_master(self.connection)
+                            if f.connector == nil then
+                                if f.type.props.connector then
+                                    f.connector = component:load(f.type.props.connector[1], select(2, unpack(f.type.props.connector) ))
                                 else
-                                    self.protocol = self.parent.protocol
+                                    f.connector = f.parent.connector
                                 end
                             end
-                            return_value = self.protocol:request_call(f, unpack(use_args))
+                            return_value = f.connector:request_call(f, f.parent.iid, unpack(use_args))
                         else
                             return_value = f.parent.server[f.type.name](f.parent.server, unpack(use_args))
                         end
                     end
+                    if tostring(return_value):sub(1, 12) == "effil::table" then
+                        return_value = table.rcopy(return_value)
+                    end
                     return f.type.output:new(return_value).value
+
                 end
             }
         )
@@ -235,13 +247,13 @@ func = new_metatype(
 function primitive_type_creator(def)
     return function(self, actual)
         if actual == nil then
-            self.value = def
+            return def
         else
             if type(actual) ~= type(def) then
                 error(string.format("Invalid type of %s(%s) - expect type %s",
                     tostring(actual), type(actual), type(def)))
             end
-            self.value = actual
+            return actual
         end
     end
 end
@@ -250,8 +262,7 @@ end
     Public API
 ]]
 int_t    = new_type(primitive_type_creator(0))
-str_t    = new_type(primitive_type_creator(""))
+string_t = new_type(primitive_type_creator(""))
 none_t   = new_type(primitive_type_creator(nil))
 float_t  = new_type(primitive_type_creator(0.0))
-double_t = new_type(primitive_type_creator(0.0))
 bool_t   = new_type(primitive_type_creator(false))

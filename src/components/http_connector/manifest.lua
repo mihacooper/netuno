@@ -2,19 +2,17 @@ module_path = "http_connector";
 submodules  = {};
 
 component {
-    name    = "http_connector_slave";
+    name    = "http_connector";
     type    = "custom";
     scheme  = "service";
-    methods = {};
-    service_main  = "run";
+    entry   = "run_slave";
     channel = "channel";
 }
 
 component {
-    name    = "http_connector_worker";
+    name    = "http_connector::worker";
     type    = "custom";
     scheme  = "service";
-    methods = {"set_socket_fd"};
-    service_main  = "run";
+    entry   = "run_worker";
     channel = "channel";
 }

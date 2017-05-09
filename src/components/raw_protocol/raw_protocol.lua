@@ -1,31 +1,37 @@
-local json = require "json"
-
-function encode(data)
-    local ret, jdata = pcall(json.encode, data, true)
-    if not ret then
-        log_err("Unable to parse data to json:%s\n%s\n", jdata, table.show(data))
+function dump_table(t)
+    if type(t) == "number" or type(t) == "bool" then
+        return tostring(t)
+    elseif type(t) == "string" then
+        return "'" .. t .. "'"
+    elseif type(t) == "table" then
+        local ret = "{"
+        for k, v in pairs(t) do
+            ret = ret .. "[" .. dump_table(k) .. "]=" .. dump_table(v) .. ","
+        end
+        return ret .. "}"
+    else
+        error("Unable to dump type: " .. type(t))
     end
-    return jdata .. "\n"
 end
 
-function decode(jdata)
-    local ret, data = pcall(json.decode, jdata)
-    if not ret then
-        log_err("Unable to parse data to json:%s\n%s\n", tostring(data), jdata)
-    end
-    return data
+function encode(tbl)
+    return dump_table(tbl) .. "\n"
+end
+
+function decode(tbl)
+    return loadstring("return " .. tbl)()
 end
 
 --[[
     Encoder
 ]]
 
-function get_json_encode(connector, host, port)
-    local json_protocol_encode = {
+function get_raw_encode(connector, host, port)
+    local raw_protocol_encode = {
         connector = component:load(connector, host, port)
     }
 
-    function json_protocol_encode:request_new(iface_name)
+    function raw_protocol_encode:request_new(iface_name)
         assert(type(iface_name) == "string")
         log_dbg("Start request for new interface '%s'", iface_name)
         local response = self.connector:send_with_return(encode({ request = "new", interface = iface_name}))
@@ -39,41 +45,31 @@ function get_json_encode(connector, host, port)
         return response.msg
     end
 
-    function json_protocol_encode:request_call(func, iid, ...)
+    function raw_protocol_encode:request_call(func, iid, ...)
         local data_to_send = { iid = iid, request = "call", method = func.type.name, args = {...} }
-        local raw_response = encode(nil)
-        if self.connector.send_with_return then
-            raw_response = self.connector:send_with_return(encode(data_to_send))
-            local response = decode(raw_response)
-            if response.result ~= 0 then
-                log_err("Connection got error: %s", response.msg)
-            end
-            return response.msg
-        else
-            self.connector:send(encode(data_to_send))
+        local response = decode(self.connector:send_with_return(encode(data_to_send)))
+        if response.result ~= 0 then
+            log_err("Connection got error: %s", response.msg)
         end
+        return response.msg
     end
 
-    function json_protocol_encode:request_del(iid)
+    function raw_protocol_encode:request_del(iid)
         self.connector:send_with_return(encode { iid = iid, request = "close" })
     end
-    return json_protocol_encode
-end
 
+    return raw_protocol_encode
+end
 --[[
     Decoder
 ]]
 
-function get_json_decode(factory_name)
-    local factory, err = component:load(factory_name)
-    if not factory then
-        log_err("Unable to load facotry '%s': %s", factory_name, err)
-    end
-    local json_protocol_decode = {
-        factory = factory
+function get_raw_decode(factory)
+    local raw_protocol_decode = {
+        factory = component:load_instate(factory)
     }
 
-    function json_protocol_decode:process(data)
+    function raw_protocol_decode:process(data)
         local processor = {
             new = function(data)
                 local status, id = self.factory:new(data.interface)
@@ -83,7 +79,7 @@ function get_json_decode(factory_name)
                 end
                 self.iface = self.factory:get(id)
                 if not self.iface then
-                    log_dbg("Factory return iface = nil, id = %s", id)
+                    log_dbg("Factory return iface = nil: %s", id)
                     return false, { result = 1, msg = "Unable to get iface instance" }
                 end
                 return false, { result = 0, msg = id }
@@ -111,13 +107,12 @@ function get_json_decode(factory_name)
             return false, encode({ result = 1, msg = "invalid request"})
         else
             local call_res, do_exit, response = pcall(processor[request], decoded_data)
-            if not call_res then
-                return false, encode({ result = 1, msg = do_exit })
+            if not response then
+                return encode({ result = 1, msg = do_exit })
             end
             return do_exit, encode(response)
         end
     end
 
-    return json_protocol_decode
+    return raw_protocol_decode
 end
-

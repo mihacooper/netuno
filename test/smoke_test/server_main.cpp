@@ -5,7 +5,8 @@
 using namespace rpc_sdk;
 
 std::mutex g_lock;
-size_t g_ifaceCount = 0;
+volatile size_t g_ifaceCount = 0;
+volatile bool g_returnCode = true;
 
 namespace rpc_sdk
 {
@@ -36,12 +37,30 @@ int SampleInterface::MyFunction2(SampleStructure param1, std::string param2)
 
 void SampleInterface::MyFunction3(int param1)
 {
-    printf("MyFunction3: %d\n", param1);
+    std::unique_lock<std::mutex> lock(g_lock);
+    if (param1 != 10)
+    {
+        g_returnCode = false;
+        std::cout << "SampleInterface::MyFunction3 received invalid 'param1' value == " << param1
+            << ", '10' expected" << std::endl;
+    }
 }
 
 std::string SampleInterface::MyFunction4()
 {
     return "return string";
+}
+
+void SampleInterface::MyFunction5(std::string msg)
+{
+    std::unique_lock<std::mutex> lock(g_lock);
+    std::cout << "SampleInterface::MyFunction5 received: " << msg << std::endl;
+    if (msg != "This is message")
+    {
+        g_returnCode = false;
+        std::cout << "SampleInterface::MyFunction5 received invalid 'msg' == '" << msg
+            << "', 'This is message' expected" << std::endl;
+    }
 }
 
 volatile std::atomic_bool g_stopProc(false);
@@ -60,4 +79,5 @@ int main()
         std::this_thread::sleep_for(std::chrono::seconds(1));
     };
     Uninitialize();
+    return g_returnCode ? 0 : 1;
 }

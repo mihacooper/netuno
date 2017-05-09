@@ -25,7 +25,7 @@ testf_log "Server PID = $SERVER_PID"
 testf_assert [ $SERVER_PID -gt 0 ]
 sleep 0.5
 
-CLIENTS_NUM=3
+CLIENTS_NUM=1
 testf_log "Run $CLIENTS_NUM clients"
 for ind in $(seq 1 $CLIENTS_NUM); do
     ./sample_client &> >(tee $WORK_DIR/client-$ind.log) &

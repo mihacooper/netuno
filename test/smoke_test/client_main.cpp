@@ -46,6 +46,7 @@ int main()
     CHECK_FUNC(interface.MyFunction2(str, "string"), str.field1);
     interface.MyFunction3(10); // return nothing, so just call it
     CHECK_FUNC(interface.MyFunction4(), "return string");
+    interface.MyFunction5("This is message");
     interface.FinishTest();
     Uninitialize();
     return return_code;

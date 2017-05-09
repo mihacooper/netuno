@@ -2,24 +2,24 @@ require "helpers"
 require "dsl"
 
 int_t:
-    specialize_type({ name = 'int'})
-str_t:
-    specialize_type({ name = 'std::string'})
+    specialize_type({ props = { name = 'int'} })
+string_t:
+    specialize_type({ props = { name = 'std::string'} })
 none_t:
-    specialize_type({ name = 'void'})
+    specialize_type({ props = { name = 'void'} })
 float_t:
-    specialize_type({ name = 'float'})
-double_t:
-    specialize_type({ name = 'double'})
+    specialize_type({ props = { name = 'double'} })
 bool_t:
-    specialize_type({ name = 'bool'})
+    specialize_type({ props = { name = 'bool'} })
 struct:
     specialize_type(
     {
         new_type = function(ntype)
-            ntype.lang.name = ntype.name
-            ntype.lang.to_lua = ntype.name .. "ToLuaObject"
-            ntype.lang.from_lua = ntype.name .. "FromLuaObject"
+            local specific = {}
+            specific.name = ntype.name
+            specific.to_lua = ntype.name .. "ToLuaObject"
+            specific.from_lua = ntype.name .. "FromLuaObject"
+            return specific
         end,
     }
 )
@@ -32,6 +32,15 @@ local header_template =
 #include "atomic"
 #include "thread"
 #include "mutex"
+
+{%for _, ct in ipairs(custom_types) do%}
+    {%if ct.type.lang.includes and #ct.type.lang.includes > 0 then%}
+        {%for _, include in ipairs(ct.type.lang.includes) do%}
+#include {*include*}
+        {%end%}
+    {%end%}
+
+{%end%}
 
 namespace rpc_sdk
 {
@@ -214,7 +223,7 @@ sol::object SystemComponentCreator(sol::this_state state, const std::string& cmp
     static std::map<std::string, sol::object(*)(sol::state_view)> sysCreators
     {
 {%for i = 1, #slave_ifaces do%}
-                std::make_pair("interface_{*slave_ifaces[i].name*}", &{*slave_ifaces[i].name*}Creator){%if i ~= #slave_ifaces then%},{%end%}
+                std::make_pair("system::interface::{*slave_ifaces[i].name*}", &{*slave_ifaces[i].name*}Creator){%if i ~= #slave_ifaces then%},{%end%}
 {%end%}
     };
     if (sysCreators.find(cmpName) == sysCreators.end())
@@ -266,7 +275,11 @@ void OutstateMethodCall(sol::this_state thisState, size_t id, const std::string&
     OutstateContextPtr componentContext;
     {
         std::lock_guard<std::recursive_mutex> lock(g_outstatesLock);
+        if (id >= g_outstates.size())
+            throw sol::error("Invalid component ID to call: " + std::to_string(id));
         componentContext = g_outstates[id];
+        if (componentContext.get() == nullptr)
+            throw sol::error("Attempt to call unloaded component, ID = " + std::to_string(id));
     }
 
     std::lock_guard<std::recursive_mutex> lock(componentContext->lock);
@@ -274,11 +287,11 @@ void OutstateMethodCall(sol::this_state thisState, size_t id, const std::string&
     obj[method](obj);
 }
 
-void CStorageMethodCall(sol::this_state thisState, const std::string& method, int id)
+void CStorageMethodCall(sol::this_state thisState, const std::string& method, int id, sol::optional<std::string> scheme)
 {
     std::lock_guard<std::recursive_mutex> lock(g_stateLock);
     sol::table obj = (*g_sdkState)["cstorage"];
-    obj[method](obj, id);
+    obj[method](obj, id, scheme);
 }
 
 SdkState CreateNewState()
@@ -386,7 +399,7 @@ void Initialize(const std::string& pathToModule)
         {%end%}
         );
         sol::table manifest = g_sdkState->create_table_with(
-            "name", "interface_{*interface.name*}",
+            "name", "system::interface::{*interface.name*}",
             "type", "system",
             "methods", ifaceMethods,
             "scheme", "outstate"
@@ -417,19 +430,28 @@ void Uninitialize()
         thread->join();
     }
     g_serverThreads.clear();
+    g_outstates.clear();
 }
 
 } // rpc_sdk
 ]]
 
 return function(props)
+    local types_wrappers = {}
+    if exports.types then
+        for _, v in ipairs(exports.types) do
+            table.insert(types_wrappers, { type = v })
+        end
+    end
+
     local config = {
         target      = target,
         module_name = props.module_name,
         module_path = props.module_path,
         structs     = exports.structures,
         master_ifaces = exports.masters,
-        slave_ifaces  = exports.slaves
+        slave_ifaces  = exports.slaves,
+        custom_types = types_wrappers
     }
     local head_body = generate(header_template, config)
     local src_body = generate(source_template, config)

@@ -9,6 +9,7 @@ cstorage = {
         custom    = true,
         system    = true
     },
+    singletons = {},
     api_channels = {}
 }
 
@@ -60,7 +61,7 @@ function cstorage:save()
         end
         str.data = bin_data
     end
-    local data = "return " .. dump_table(storage)
+    local data = dump_table(storage)
     if not data then
         log_err("Unable to dump storage data")
     end
@@ -210,7 +211,7 @@ function cstorage:get_component_loader(cmp_name)
         end
         local raw_comp_data = cmp_str.data
 
-        local function instate_loader(cmp_name, raw_data)
+        local function instate_loader(cmp_name, cmp_entry, raw_data)
             local sandbox_env = {
                 _G = {},
                 effil = effil,
@@ -230,6 +231,7 @@ function cstorage:get_component_loader(cmp_name)
                 unpack = unpack,
                 error = error,
                 assert = assert,
+                loadstring = loadstring,
                 io = io,
                 coroutine = { create = coroutine.create, resume = coroutine.resume, 
                   running = coroutine.running, status = coroutine.status, 
@@ -259,31 +261,19 @@ function cstorage:get_component_loader(cmp_name)
             if not exe_stat then
                 error(("Unable to run component: %s"):format(err))
             end
-            if sandbox_env[cmp_name] == nil then
-                error(("Component entry point '%s' is nil"):format(cmp_name))
+            if sandbox_env[cmp_entry] == nil or type(sandbox_env[cmp_entry]) ~= "function" then
+                error(("Component entry point '%s::%s' is not valid function"):format(cmp_name, cmp_entry))
             end
-            return sandbox_env[cmp_name]
+            return sandbox_env[cmp_entry]
         end
-        return { loader = string.dump(instate_loader), data = {cmp_name, raw_comp_data} }
+        return { loader = string.dump(instate_loader), data = {cmp_name, cmp.entry, raw_comp_data} }
     end
 end
 
-function cstorage:load_instate_component(channel_id)
-    local cmp_name = effil.G.system.storage:get(channel_id).input:pop(0)
-    if not cmp_name then
-        error("CStorage: unable to read input data from channel '" .. tostring(channel_id) .. "'")
-    end
-    log_dbg("Reading cstorage request data: channel ID = %s, component = %s", channel_id, cmp_name)
-
-    local cmp = storage.components[cmp_name]
-    if not cmp then
-        error("CStorage: Invalid component name: " .. tostring(cmp_name))
-    end
-    effil.G.system.storage:get(channel_id).output:push(self:get_component_loader(cmp_name))
-end
-
-function cstorage:load_component(channel_id)
-    local cmp_name = effil.G.system.storage:get(channel_id).input:pop(0)
+function cstorage:load_component(channel_id, scheme)
+    local input_args = {effil.G.system.storage:get(channel_id).input:pop(0)}
+    local cmp_name = input_args[1]
+    local cmp_args = {select(2, unpack(input_args))}
     if not cmp_name then
         error("CStorage: unable to read input data from channel '" .. tostring(channel_id) .. "'")
     end
@@ -296,87 +286,112 @@ function cstorage:load_component(channel_id)
     local methods = cmp.methods
 
     local data_to_return = nil
-    if cmp.scheme == "instate" then
-        data_to_return = self:get_component_loader(cmp_name)
-    elseif cmp.scheme == "outstate" then
-        local storage_id = effil.G.system.storage:new()
-        effil.G.system.storage:get(storage_id).creation_status = effil.channel()
+    scheme = scheme or cmp.scheme
+    if scheme == "instate" then
+        data_to_return = self:get_component_loader(cmp_name, unpack(cmp_args))
+    elseif scheme == "outstate" or scheme == "outstate-singleton" then
+        local storage_id = -1
+        local use_existent = (scheme == "outstate-singleton" and self.singletons[cmp_name] ~= nil)
+        if use_existent then
+            storage_id = self.singletons[cmp_name][1]
+        else
+            storage_id = effil.G.system.storage:new()
+            effil.G.system.storage:get(storage_id).creation_status = effil.channel()
+            effil.G.system.storage:get(storage_id).input = effil.channel(1)
+            effil.G.system.storage:get(storage_id).output = effil.channel(1)
+            effil.G.system.storage:get(storage_id).input:push(unpack(cmp_args))
+            if scheme == "outstate-singleton" then
+                self.singletons[cmp_name] = { storage_id }
+            end
+        end
 
         local outstate_cli_loader_src = [[
+            --outstate_cli_loader_src
             return function()
-                local stat, err = require('effil').G.system.storage:get({*storage_id*}).creation_status:pop()
-                if not stat then
-                    log_dbg(err)
-                    return nil
-                end
                 return {
                     __component_id = {*comp_id*},
             {%for _, method in ipairs(methods) do%}
                     ["{*method*}"] = function(self, ...)
-                        require('effil').G.system.storage:get({*storage_id*}).input = {...}
+                        while not require('effil').G.system.storage:get({*storage_id*}).input:push(dump_table({...})) do end
                         system.outstate_call({*comp_id*}, "{*method*}", "__loaded_component")
-                        local res = require('effil').G.system.storage:get({*storage_id*}).output
-                        local ret = {}
-                        for _, v in ipairs(res) do table.insert(ret, table.rcopy(v)) end
-                        return unpack(ret)
+                        local res = {require('effil').G.system.storage:get({*storage_id*}).output:pop()}
+                        return unpack(loadstring(res[1])(select(2, unpack(res) ) ) )
                     end,
             {%end%}
                 }
             end
         ]]
 
-        local outstate_srv_loader_src = [[
-            return function()
-                local loaded_cmp = component:load_instate("{*cmp_name*}")
-                if not loaded_cmp then
-                    require('effil').G.system.storage:get({*storage_id*}).creation_status:push(false,
-                            "Outstate component loader returns nil ({*cmp_name*}, {*storage_id*})")
-                    return nil
+        local comp_id = nil
+        if not use_existent then
+            local outstate_srv_loader_src = [[
+                --outstate_srv_loader_src
+                return function()
+                    local loaded_cmp = component:load_instate("{*cmp_name*}", require('effil').G.system.storage:get({*storage_id*}).input:pop(0))
+                    if not loaded_cmp then
+                        log_err("Outstate component loader returns nil ({*cmp_name*}, {*storage_id*})")
+                    end
+                    require('effil').G.system.storage:get({*storage_id*}).creation_status:push(true)
+                    _G.__loaded_component = {
+                        loaded_cmp = loaded_cmp,
+                {%for _, method in ipairs(methods) do%}
+                        ["{*method*}"] = function(self)
+                            local raw_input = {require('effil').G.system.storage:get({*storage_id*}).input:pop()}
+                            local input = loadstring(raw_input[1])( select(2, unpack(raw_input)) )
+                            local ret = {self.loaded_cmp["{*method*}"](self.loaded_cmp, unpack(input))}
+                            while not require('effil').G.system.storage:get({*storage_id*}).output:push(dump_table(ret)) do end
+                        end,
+                {%end%}
+                    }
                 end
-                require('effil').G.system.storage:get({*storage_id*}).creation_status:push(true)
-                _G.__loaded_component = {
-                    loaded_cmp = loaded_cmp,
-            {%for _, method in ipairs(methods) do%}
-                    ["{*method*}"] = function(self)
-                        local share = require('effil').G.system.storage:get({*storage_id*})
-                        local input = {}
-                        for k,v in ipairs(share.input) do input[k] = v end
-                        share.output = table.pack(self.loaded_cmp["{*method*}"](self.loaded_cmp, unpack(input)))
-                    end,
-            {%end%}
-                }
+            ]]
+            local outstate_srv_loader = loadstring(generate(outstate_srv_loader_src,
+                    { cmp_name = cmp_name, methods = methods, storage_id = storage_id }))()
+            comp_id = system.outstate_create(cmp_name, string.dump(outstate_srv_loader))
+            if scheme == "outstate-singleton" then
+                table.insert(self.singletons[cmp_name], comp_id)
             end
-        ]]
-        local outstate_srv_loader = loadstring(generate(outstate_srv_loader_src,
-                { cmp_name = cmp_name, methods = methods, storage_id = storage_id }))()
-        local comp_id = system.outstate_create(cmp_name, string.dump(outstate_srv_loader))
-
+        else
+            comp_id = self.singletons[cmp_name][2]
+        end
         local outstate_cli_loader = loadstring(generate(outstate_cli_loader_src,
                 { methods = methods, storage_id = storage_id, comp_id = comp_id }))()
 
         data_to_return = { loader = string.dump(outstate_cli_loader) }
-    elseif cmp.scheme == "service" then
-        local storage_id = require('effil').G.system.storage:new()
-        require('effil').G.system.storage:get(storage_id).exchange_channel = require('effil').channel()
-        require('effil').G.system.storage:get(storage_id).input_args = require('effil').channel()
+    elseif scheme == "service" or scheme == "service-singleton" then
+        local storage_id = -1
+        local use_existent = (scheme == "service-singleton" and self.singletons[cmp_name] ~= nil)
+        if use_existent then
+            storage_id = self.singletons[cmp_name][1]
+        else
+            storage_id = require('effil').G.system.storage:new()
+            require('effil').G.system.storage:get(storage_id).exchange_channel = require('effil').channel()
+            require('effil').G.system.storage:get(storage_id).input_args = require('effil').channel()
+            require('effil').G.system.storage:get(storage_id).input_args:push(unpack(cmp_args))
+            if scheme == "service-singleton" then
+                self.singletons[cmp_name] = { storage_id }
+            end
+        end
 
         local service_cli_loader_src = [[
-            return function(...)
-                require('effil').G.system.storage:get({*storage_id*}).input_args:push(...)
+            -- service_cli_loader_src
+            return function()
                 return require('effil').G.system.storage:get({*storage_id*}).exchange_channel
             end
         ]]
 
-        local service_srv_loader_src = [[
-            return function()
-                local loaded_cmp = component:load_instate("{*cmp_name*}")
-                local channel = require('effil').G.system.storage:get({*storage_id*}).exchange_channel
-                loaded_cmp["{*service_main*}"](loaded_cmp, require('effil').G.system.storage:get({*storage_id*}).input_args:pop())
-            end
-        ]]
-        local service_srv_loader = loadstring(generate(service_srv_loader_src,
-                { cmp_name = cmp_name, service_main = cmp.service_main, storage_id = storage_id}))()
-        system.service_create(string.dump(service_srv_loader))
+        if not use_existent then
+            local service_srv_loader_src = [[
+                -- service_srv_loader_src
+                return function()
+                    local channel = require('effil').G.system.storage:get({*storage_id*}).exchange_channel
+                    component:load_instate("{*cmp_name*}", require('effil').G.system.storage:get({*storage_id*}).input_args:pop(0))
+                end
+            ]]
+            local service_srv_loader = loadstring(generate(service_srv_loader_src,
+                    { cmp_name = cmp_name, entry = cmp.entry, storage_id = storage_id}))()
+            system.service_create(string.dump(service_srv_loader))
+        end
 
         local service_cli_loader = loadstring(generate(service_cli_loader_src, {storage_id = storage_id}))()
         data_to_return = { loader = string.dump(service_cli_loader) }
@@ -388,9 +403,6 @@ function cstorage:load_component(channel_id)
         log_dbg("\t%s = %s", string.sub(tostring(k), 1, 50), string.sub(tostring(v), 1, 50))
     end
     effil.G.system.storage:get(channel_id).output:push(data_to_return)
-
-    collectgarbage()
-    effil.gc.collect()
 end
 
 function cstorage:get_cstorage_api()
@@ -402,32 +414,40 @@ function cstorage:get_cstorage_api()
     return generate([[
         component = { storage_id = {*storage_id*} }
 
-        function component:__load(func, cmp_name, ...)
-            require('effil').G.system.storage:get(self.storage_id).input:push(cmp_name)
+        function component:__load(scheme, cmp_name, ...)
+            require('effil').G.system.storage:get(self.storage_id).input:push(cmp_name, ...)
 
-            system.cstorage(func, self.storage_id)
+            local stat, err = pcall(system.cstorage, "load_component", self.storage_id, scheme)
+            if not stat then
+                return nil, err
+            end
 
             local str = require('effil').G.system.storage:get(self.storage_id).output:pop()
-            local in_args = {}
             if str.data then
+                local in_args = {}
                 for _, v in ipairs(str.data) do
                     table.insert(in_args, v)
                 end
+                return loadstring(str.loader)(unpack(in_args))(...)
+            else
+                return loadstring(str.loader)()
             end
-            for _, v in ipairs({...}) do
-                table.insert(in_args, v)
-            end
-            collectgarbage()
-            require('effil').gc.collect()
-            return loadstring(str.loader)(unpack(in_args))
         end
 
         function component:load(cmp_name, ...)
-            return self:__load("load_component", cmp_name, ...)
+            return self:__load(nil, cmp_name, ...)
         end
 
         function component:load_instate(cmp_name, ...)
-            return self:__load("load_instate_component", cmp_name, ...)
+            return self:__load("instate", cmp_name, ...)
+        end
+
+        function component:load_outstate(cmp_name, ...)
+            return self:__load("outstate", cmp_name, ...)
+        end
+
+        function component:load_service(cmp_name, ...)
+            return self:__load("service", cmp_name, ...)
         end
 
         function component:unload(cmp_data)

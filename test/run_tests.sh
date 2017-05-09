@@ -78,8 +78,8 @@ function testf_expect()
 function testf_compile()
 {
     binary_name=$1; shift
-    testf_assert g++ -O0 -g -pthread -std=c++14 $@ \
-        -I/usr/include/lua5.2 -I$SDK_DIR/lang-cpp/sol2/single/sol -I$WORK_DIR \
+    testf_assert g++ -O2 -g -pthread -std=c++14 $@ \
+        -I/usr/include/lua5.2 -I$SDK_DIR/lang-cpp/sol2/single/sol -I$WORK_DIR -I$TEST_DIR \
         -llua5.2 -o $binary_name
 }
 

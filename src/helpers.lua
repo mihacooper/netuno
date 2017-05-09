@@ -74,7 +74,7 @@ share = {
 
 function log_dbg(fmt, ...)
     if DEBUG then
-        print(string.format(fmt, ...))
+        print(("[%15s] "):format(effil.thread_id()) .. string.format(fmt, ...))
     end
 end
 
@@ -252,18 +252,29 @@ function table.show(t, name, indent)
    return cart .. autoref
 end
 
-function dump_table(t)
-    if type(t) == "number" or type(t) == "bool" then
+local function dump_table__(t, funcs)
+    if type(t) == "number" or type(t) == "boolean" then
         return tostring(t)
     elseif type(t) == "string" then
         return "'" .. t .. "'"
+    elseif type(t) == "function" then
+        table.insert(funcs, string.dump(t))
+        return ("loadstring(funcs[%s])"):format(#funcs)
     elseif type(t) == "table" then
         local ret = "{"
         for k, v in pairs(t) do
-            ret = ret .. "[" .. dump_table(k) .. "]=" .. dump_table(v) .. ","
+            ret = ret .. "[" .. dump_table__(k, funcs) .. "]=" .. dump_table__(v, funcs) .. ","
         end
         return ret .. "}"
     else
         error("Unable to dump type: " .. type(t))
     end
+end
+
+function dump_table(t)
+    local funcs = {}
+    local dumped = dump_table__(t, funcs)
+    return [[
+local funcs = {...}
+return ]] .. dumped, unpack(funcs)
 end

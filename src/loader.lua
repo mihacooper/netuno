@@ -11,6 +11,7 @@ return function(module_path, language, target)
     end
 
     local context = {
+        log_err = log_err,
         component = component,
         target = target,
         require = require,
@@ -28,6 +29,9 @@ return function(module_path, language, target)
         io = io,
         string = string,
         table = table,
+        select = select,
+        getfenv = getfenv,
+        collectgarbage = collectgarbage,
         setmetatable = setmetatable,
         getmetatable = getmetatable,
         math = math,
@@ -44,8 +48,14 @@ return function(module_path, language, target)
     exports = { slaves = {}, masters = {} }
     for _, iface in ipairs(context.exports.slaves) do
         exports.slaves[iface.name] = iface
-        table.insert(startups_data, {iface.flags.connector .. "_slave", iface.flags.host,
-            iface.flags.port, iface.flags.protocol, iface.flags.factory})
+        if iface.flags.connector then
+            table.insert(startups_data, iface.flags.connector)
+        end
+        for _, func in ipairs(iface.functions) do
+            if func.props.connector then
+                table.insert(startups_data, func.props.connector)
+            end
+        end
     end
     for _, iface in ipairs(context.exports.masters) do
         exports.masters[iface.name] = iface

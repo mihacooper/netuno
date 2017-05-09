@@ -1,14 +1,64 @@
 local socket = require "socket"
 local effil = require "effil"
 
+function process_request(data)
+    if #data == 0 then
+        return "Invalid request: data is nil"
+    end
+    local raw_str = string.match(data[1], "GET (.+) HTTP")
+    if not raw_str then
+        return "Invalid request format: " .. data[1]
+    end
+
+    local iface_name, method_name, raw_args = raw_str:match("/(.+)/(.+)?(.+)")
+    if not iface_name then
+        iface_name, method_name = raw_str:match("/(.+)/(.+)")
+    end
+    if not iface_name and not method_name then
+        return "Invalid request format: " .. raw_str
+    end
+
+    local args = {}
+    if raw_args then
+        for val in (raw_args .. "&"):gmatch("([^&]*)&") do
+            if val ~= nil and val ~= '' then
+                local value = val:match(".+=(.+)")
+                if value ~= nil and value ~= '' then
+                    if tonumber(value) ~= nil then
+                        table.insert(args, tonumber(value))
+                    else
+                        table.insert(args, value)
+                    end
+                end
+            end
+        end
+    end
+
+    local iface = component:load_instate("system::interface::" .. iface_name)
+    if iface == nil then
+        log_dbg("Unable to load interface %s", iface_name)
+        return "Internal error"
+    end
+    local method = iface[method_name]
+    if method == nil then
+        return "Invalid method call: " .. method_name
+    end
+    
+    local returns = { method(iface, unpack(args)) }
+    return [[
+HTTP/1.1 200 OK
+
+]] .. table.concat(returns, "\n")
+end
+
+
+
 --[[
     http_connector_slave
 ]]
 
-http_connector_slave = {}
-
-function http_connector_slave:run(host, port, protocol_name, factory_name)
-    log_dbg("Run a 'http_connector' server with: %s:%s %s %s", host, port, protocol_name, factory_name)
+function run_slave(host, port)
+    log_dbg("Run a 'http_connector' server with: %s:%s", host, port)
     local dummy_server = assert(socket.bind(host, port + 1))
     dummy_server:settimeout(0)
 
@@ -22,7 +72,7 @@ function http_connector_slave:run(host, port, protocol_name, factory_name)
         local new_conn = server:accept()
         if new_conn and new_conn:getfd() > 0 then
             log_dbg("Server 'http_connector' got a new connection", new_conn:getfd())
-            component:load("http_connector_worker", host, port, new_conn:getfd(), protocol_name, factory_name)
+            component:load("http_connector::worker", host, port, new_conn:getfd())
             new_conn:setfd(-1)
         end
     end
@@ -32,12 +82,8 @@ end
     http_connector_worker
 ]]
 
-http_connector_worker = {}
-
-function http_connector_worker:run(host, port, socket_fd, protocol_name, factory_name)
-    log_dbg("Server thread of 'http_connector' has started with [%s] on %s:%s (%s, %s)", socket_fd, host, port, protocol_name, factory_name)
-    local protocol = component:load(protocol_name .. "_decode")
-    protocol:set_factory(factory_name)
+function run_worker(host, port, socket_fd)
+    log_dbg("Server thread of 'http_connector' has started with [%s] on %s:%s", socket_fd, host, port)
 
     local exit_thread = false
     local connection = assert(socket.connect(host, port + 1))
@@ -66,9 +112,9 @@ function http_connector_worker:run(host, port, socket_fd, protocol_name, factory
             end
 
             log_dbg("Server thread [%s] receive: %s, err: %s", socket_fd, data_to_print, status or "nil")
-            local data_to_send = protocol:process(data)
+            local data_to_send = process_request(data)
             
-            log_dbg("Server thread [%s] sent: %s", socket_fd, data_to_send)
+            log_dbg("Server thread [%s] sent:\n%s", socket_fd, data_to_send)
             connection:send(data_to_send)
         end
     end

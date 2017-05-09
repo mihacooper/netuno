@@ -5,41 +5,39 @@ local effil = require "effil"
     tcp_connector_master
 ]]
 
-tcp_connector_master = {}
+function get_tcp_master(host, port)
+    local tcp_connector_master = {}
 
-function tcp_connector_master:set_connection_string(host, port)
-    self.sock = assert(socket.connect(host, port))
-    print( ("Client starts connection [%s]"):format(self.sock:getfd()))
-end
+    tcp_connector_master.sock = assert(socket.connect(host, port))
+    print( ("Client starts connection [%s]"):format(tcp_connector_master.sock:getfd()))
 
-function tcp_connector_master:send_with_return(data)
-    self:send(data)
-    log_dbg("TCP connector [%s] waiting for response from server...", self.sock:getfd())
-    local line, err = self.sock:receive("*l")
-    if err ~= nil then
-        error( ("Client connection [%s] has received error: %s"):format(self.sock:getfd(), err))
+    function tcp_connector_master:send_with_return(data)
+        self:send(data)
+        log_dbg("TCP connector [%s] waiting for response from server...", self.sock:getfd())
+        local line, err = self.sock:receive("*l")
+        if err ~= nil then
+            error( ("Client connection [%s] has received error: %s"):format(self.sock:getfd(), err))
+        end
+        log_dbg("TCP connector [%s] got response '%s'", self.sock:getfd(), line)
+        return line
     end
-    log_dbg("TCP connector [%s] got response '%s'", self.sock:getfd(), line)
-    return line
-end
 
-function tcp_connector_master:send(data)
-    log_dbg("TCP connector [%s] send data '%s'", self.sock:getfd(), data)
-    self.sock:send(data)
-end
+    function tcp_connector_master:send(data)
+        log_dbg("TCP connector [%s] send data '%s'", self.sock:getfd(), data)
+        self.sock:send(data)
+    end
 
-function tcp_connector_master:close()
-    self.sock:close()
-    self.sock = nil
+    function tcp_connector_master:close()
+        self.sock:close()
+        self.sock = nil
+    end
+    return tcp_connector_master
 end
-
 --[[
     tcp_connector_slave
 ]]
 
-tcp_connector_slave = {}
-
-function tcp_connector_slave:run(host, port, protocol_name, factory_name)
+function run_tcp_slave(host, port, protocol_name, factory_name)
     log_dbg("Run a 'tcp_connector' server with: %s:%s %s %s", host, port, protocol_name, factory_name)
     local dummy_server = assert(socket.bind(host, port + 1))
     dummy_server:settimeout(0)
@@ -64,12 +62,9 @@ end
     tcp_connector_worker
 ]]
 
-tcp_connector_worker = {}
-
-function tcp_connector_worker:run(host, port, socket_fd, protocol_name, factory_name)
+function run_tcp_worker(host, port, socket_fd, protocol_name, factory_name)
     log_dbg("Server thread of 'tcp_connector' has started with [%s] on %s:%s (%s, %s)", socket_fd, host, port, protocol_name, factory_name)
-    local protocol = component:load(protocol_name .. "_decode")
-    protocol:set_factory(factory_name)
+    local protocol = component:load(protocol_name, factory_name)
 
     local exit_thread = false
     local connection = assert(socket.connect(host, port + 1))

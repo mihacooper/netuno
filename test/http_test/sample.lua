@@ -1,15 +1,14 @@
 
 class "HttpInterface"
 {
-    func "get_info": str_t(str_t "field", int_t "time");
-    func "stop": str_t();
+    func "get_info": string_t(string_t "field", int_t "time");
+    func "stop": string_t();
 
-    connector = "http_connector";
-    factory   = "plain_factory";
-    protocol  = "http_protocol";
-
-    host = "localhost";
-    port = 9898;
+    connector = {
+        "http_connector";
+        "localhost";
+        9898;
+    }
 }
 
 exports.slaves = { HttpInterface }

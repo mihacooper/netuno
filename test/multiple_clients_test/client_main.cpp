@@ -6,7 +6,7 @@ using namespace rpc_sdk;
 
 std::mutex g_lock;
 volatile int g_return_code = 0;
-size_t g_createdIfaces = 0;
+volatile size_t g_createdIfaces = 0;
 
 #define CHECK(f, res) \
     { \
@@ -55,10 +55,13 @@ int main()
     Initialize();
     for (size_t i = 0; i < threads_num; ++i)
     {
-        threads.emplace_back(std::thread(ThreadWorker));
+        threads.push_back(std::thread(ThreadWorker));
     }
+    std::cout << "All threads was run, wait..." << std::endl;
 
     while (g_createdIfaces != threads_num) {}
+
+    std::cout << "All Client was created, wait..." << std::endl;
 
     for (auto& thr: threads)
         thr.join();
